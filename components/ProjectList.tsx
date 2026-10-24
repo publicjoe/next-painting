@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { Project, Model, Category, StatusField } from '@/types';
 import { ModelTable } from './ModelTable';
 import { InlineEditText } from './InlineEditText';
 import { TrashIcon } from './icons';
+import { getProjectProgress } from '@/lib/progress';
 
 interface ProjectListProps {
   category: Category;
@@ -15,6 +16,9 @@ interface ProjectListProps {
   onUpdateModel: (model: Model) => void;
   onDeleteModel: (id: string) => void;
   onToggleStatus: (id: string, field: StatusField) => void;
+  /** Project the sidebar asked to reveal; cleared via onFocusHandled once scrolled to. */
+  focusedProjectId?: string | null;
+  onFocusHandled?: () => void;
 }
 
 export function ProjectList({
@@ -28,6 +32,8 @@ export function ProjectList({
   onUpdateModel,
   onDeleteModel,
   onToggleStatus,
+  focusedProjectId = null,
+  onFocusHandled,
 }: ProjectListProps) {
   const [newProjectName, setNewProjectName] = useState('');
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
@@ -43,17 +49,22 @@ export function ProjectList({
   const toggleExpand = (projectId: string) => {
     setExpandedProjects(prev => ({
       ...prev,
-      [projectId]: !prev[projectId]
+      [projectId]: prev[projectId] === false // unset means expanded, so the first click collapses
     }));
   };
 
-  const getProjectProgress = (projectModels: Model[]) => {
-    const totalCount = projectModels.reduce((sum, m) => sum + m.count, 0);
-    const paintedCount = projectModels.filter(m => m.based).reduce((sum, m) => sum + m.count, 0);
-    const percentage = totalCount === 0 ? 0 : Math.round((paintedCount / totalCount) * 100);
-    
-    return { totalCount, paintedCount, percentage };
-  };
+  // Reveal the project picked in the sidebar: expand it, scroll to it, focus it
+  useEffect(() => {
+    if (!focusedProjectId) return;
+    const card = document.getElementById(`project-${focusedProjectId}`);
+    if (!card) return onFocusHandled?.(); // stale request (project gone or in another category)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing UI to an external request
+    setExpandedProjects(prev => ({ ...prev, [focusedProjectId]: true }));
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    card.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    card.focus({ preventScroll: true });
+    onFocusHandled?.();
+  }, [focusedProjectId, projects, onFocusHandled]);
 
   return (
     <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 bg-zinc-900">
@@ -98,7 +109,12 @@ export function ProjectList({
             const progress = getProjectProgress(projectModels);
             
             return (
-              <div key={project.id} className="bg-zinc-800/40 border border-zinc-700/50 rounded-xl overflow-hidden shadow-lg">
+              <div
+                key={project.id}
+                id={`project-${project.id}`}
+                tabIndex={-1}
+                className="bg-zinc-800/40 border border-zinc-700/50 rounded-xl overflow-hidden shadow-lg"
+              >
                 {/* Project Header */}
                 <div className="p-5 flex flex-col md:flex-row md:items-center justify-between hover:bg-zinc-800/80 transition-colors gap-4">
                   <div className="flex items-center space-x-4">
