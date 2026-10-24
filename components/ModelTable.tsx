@@ -19,22 +19,31 @@ interface StatusCheckboxProps {
   onToggle: (id: string, field: StatusField) => void;
 }
 
+// Status cells are tinted green when ticked and red when not. A model with every
+// stage ticked is complete, and its whole row is tinted green.
+const GREEN = 'bg-green-600/40';
+const isComplete = (m: Model) => m.built && m.primed && m.painted && m.based;
+const statusCellClass = (ticked: boolean) =>
+  `px-2 py-0.5 transition-colors ${ticked ? GREEN : 'bg-red-800/40'}`;
+const rowCellClass = (base: string, m: Model) =>
+  `${base} transition-colors ${isComplete(m) ? GREEN : ''}`;
+
 function StatusCheckbox({ model, field, label, onToggle }: StatusCheckboxProps) {
   return (
-    <label className="flex items-center justify-center p-2 cursor-pointer group">
+    <label className="flex items-center justify-center p-1 cursor-pointer group">
       <input
         type="checkbox"
         className="peer sr-only"
         checked={model[field]}
         onChange={() => onToggle(model.id, field)}
       />
-      <div className={`w-6 h-6 rounded-md border flex items-center justify-center transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400 ${
+      <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400 ${
         model[field]
           ? 'bg-blue-500 border-blue-500 text-white'
           : 'border-zinc-500 group-hover:border-blue-400 bg-zinc-800'
       }`}>
         {model[field] && (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
           </svg>
         )}
@@ -68,19 +77,19 @@ export function ModelTable({
         <table className="w-full text-left text-sm text-zinc-400">
           <thead className="text-xs uppercase bg-zinc-800/80 text-zinc-300">
             <tr>
-              <th className="px-4 py-3 font-medium">Model Name</th>
-              <th className="px-4 py-3 font-medium text-center w-16">Count</th>
-              <th className="px-4 py-3 font-medium text-center w-20">Built</th>
-              <th className="px-4 py-3 font-medium text-center w-20">Primed</th>
-              <th className="px-4 py-3 font-medium text-center w-20">Painted</th>
-              <th className="px-4 py-3 font-medium text-center w-20">Based</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th className="w-full px-4 py-1.5 font-medium">Model Name</th>
+              <th className="px-4 py-1.5 font-medium text-center w-16">Count</th>
+              <th className="px-4 py-1.5 font-medium text-center w-20">Built</th>
+              <th className="px-4 py-1.5 font-medium text-center w-20">Primed</th>
+              <th className="px-4 py-1.5 font-medium text-center w-20">Painted</th>
+              <th className="px-4 py-1.5 font-medium text-center w-20">Based</th>
+              <th className="px-4 py-1.5 text-right"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
             {models.map(model => (
-              <tr key={model.id} className="border-b border-zinc-700/50 hover:bg-zinc-700/30 transition-colors">
-                <td className="px-4 py-2 font-medium text-zinc-100">
+              <tr key={model.id} className="bg-zinc-700 border-b border-zinc-500 hover:bg-zinc-600 transition-colors">
+                <td className={rowCellClass('px-4 py-0.5 font-medium text-zinc-100', model)}>
                   <InlineEditText
                     ariaLabel={`Name of ${model.name}`}
                     className="bg-transparent border-b border-transparent hover:border-zinc-600 focus:border-blue-500 w-full"
@@ -88,13 +97,13 @@ export function ModelTable({
                     onCommit={(name) => onUpdateModel({ ...model, name })}
                   />
                 </td>
-                <td className="px-4 py-2">
+                <td className={rowCellClass('px-4 py-0.5', model)}>
                   <div className="flex justify-center flex-col items-center">
                     <input 
                       type="number" 
                       min="1"
                       aria-label={`Count for ${model.name}`}
-                      className="bg-zinc-900 border border-zinc-600 rounded px-2 py-1 w-16 text-center text-zinc-100 focus:border-blue-500"
+                      className="bg-zinc-900 border border-zinc-600 rounded px-2 py-0.5 w-16 text-center text-zinc-100 focus:border-blue-500"
                       value={model.count}
                       onChange={(e) => {
                         const n = parseInt(e.target.value, 10);
@@ -103,16 +112,16 @@ export function ModelTable({
                     />
                   </div>
                 </td>
-                <td className="p-2"><StatusCheckbox model={model} onToggle={onToggleStatus} field="built" label="Built" /></td>
-                <td className="p-2"><StatusCheckbox model={model} onToggle={onToggleStatus} field="primed" label="Primed" /></td>
-                <td className="p-2"><StatusCheckbox model={model} onToggle={onToggleStatus} field="painted" label="Painted" /></td>
-                <td className="p-2"><StatusCheckbox model={model} onToggle={onToggleStatus} field="based" label="Based" /></td>
-                <td className="px-4 py-2 text-right">
+                <td className={statusCellClass(model.built)}><StatusCheckbox model={model} onToggle={onToggleStatus} field="built" label="Built" /></td>
+                <td className={statusCellClass(model.primed)}><StatusCheckbox model={model} onToggle={onToggleStatus} field="primed" label="Primed" /></td>
+                <td className={statusCellClass(model.painted)}><StatusCheckbox model={model} onToggle={onToggleStatus} field="painted" label="Painted" /></td>
+                <td className={statusCellClass(model.based)}><StatusCheckbox model={model} onToggle={onToggleStatus} field="based" label="Based" /></td>
+                <td className={rowCellClass('px-4 py-0.5 text-right', model)}>
                   <button
                     type="button"
                     onClick={() => onDeleteModel(model.id)}
                     aria-label={`Delete model ${model.name}`}
-                    className="text-zinc-400 hover:text-red-400 p-2 transition-colors rounded-full hover:bg-zinc-700"
+                    className="text-zinc-400 hover:text-red-400 p-1 transition-colors rounded-full hover:bg-zinc-700"
                     title="Delete Model"
                   >
                     <TrashIcon />
