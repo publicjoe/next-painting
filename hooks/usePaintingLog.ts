@@ -2,10 +2,11 @@ import { useReducer, useEffect, useState, useCallback, useRef } from 'react';
 import { initialState, reducer } from '@/lib/state';
 import { isAppState } from '@/lib/validate';
 import { migrate, STORAGE_KEY, STORAGE_VERSION } from '@/lib/migrate';
+import { BACKUP_KEY, keepBackup } from '@/lib/backup';
 import type { StoredState } from '@/lib/migrate';
 import type { AppState } from '@/types';
 
-export const BACKUP_KEY = `${STORAGE_KEY}.bak`;
+export { BACKUP_KEY };
 /** Quiet period after the last edit before the state is written. */
 export const SAVE_DEBOUNCE_MS = 300;
 
@@ -13,6 +14,11 @@ export function usePaintingLog() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Storage key holding a raw copy of unreadable data; null when none could be kept
+  const [backupKey, setBackupKey] = useState<string | null>(null);
+  // 'failed': a backup was attempted and could not be written. 'none': storage
+  // could not be read, so no backup was attempted and the data may still be there.
+  const [backupFailed, setBackupFailed] = useState(false);
   const [saveError, setSaveError] = useState(false);
   // Latest state waiting for its debounced write (null when nothing is pending)
   const pendingRef = useRef<AppState | null>(null);
@@ -45,10 +51,17 @@ export function usePaintingLog() {
         } else {
           // Unreadable: keep a copy of the raw string and do NOT let the
           // persist effect overwrite it until the user chooses to start fresh.
-          try { localStorage.setItem(BACKUP_KEY, stored); } catch { /* quota: nothing more to do */ }
-          console.error('Stored state is unreadable; raw copy kept under', BACKUP_KEY);
+          const kept = keepBackup(stored);
+          if (kept) console.error('Stored state is unreadable; raw copy kept under', kept);
+          else console.error('Stored state is unreadable and no backup could be written');
           // eslint-disable-next-line react-hooks/set-state-in-effect
-          setLoadError(`Your saved data could not be read. A raw copy was kept in browser storage as "${BACKUP_KEY}".`);
+          setBackupKey(kept);
+          setBackupFailed(kept === null);
+          setLoadError(
+            kept
+              ? `Your saved data could not be read. A raw copy was kept in browser storage as "${kept}".`
+              : 'Your saved data could not be read, and a backup copy could not be written. Export it from the browser developer tools before starting fresh.',
+          );
         }
       }
     } catch (e) {
@@ -133,7 +146,9 @@ export function usePaintingLog() {
   const startFresh = useCallback(() => {
     dispatch({ type: 'REPLACE_STATE', payload: initialState });
     setLoadError(null);
+    setBackupKey(null);
+    setBackupFailed(false);
   }, []);
 
-  return { state, dispatch, isLoaded, loadError, saveError, startFresh };
+  return { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, startFresh };
 }

@@ -62,6 +62,49 @@ describe('usePaintingLog', () => {
     expect(store.get(STORAGE_KEY)).toBe(raw);
   });
 
+  it('never overwrites an earlier backup', async () => {
+    store.set(BACKUP_KEY, 'older copy');
+    store.set(STORAGE_KEY, '{bad');
+    const { result } = renderHook(() => usePaintingLog());
+    await waitFor(() => expect(result.current.backupKey).toBe(`${BACKUP_KEY}.2`));
+    expect(store.get(BACKUP_KEY)).toBe('older copy');
+    expect(store.get(`${BACKUP_KEY}.2`)).toBe('{bad');
+    expect(result.current.loadError).toContain(`${BACKUP_KEY}.2`);
+  });
+
+  it('says so when the backup cannot be written', async () => {
+    store.set(STORAGE_KEY, '{bad');
+    setItem.mockImplementation(() => { throw new Error('QuotaExceededError'); });
+    const { result } = renderHook(() => usePaintingLog());
+    await waitFor(() => expect(result.current.loadError).not.toBeNull());
+    expect(result.current.backupKey).toBeNull();
+    expect(result.current.loadError).toContain('backup copy could not be written');
+    expect(result.current.loadError).not.toContain('was kept');
+    expect(store.get(STORAGE_KEY)).toBe('{bad');
+  });
+
+  it('reports no backup attempt when storage cannot be read', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => { throw new Error('blocked'); },
+      setItem,
+      removeItem: () => {},
+    });
+    const { result } = renderHook(() => usePaintingLog());
+    await waitFor(() => expect(result.current.loadError).not.toBeNull());
+    expect(result.current.backupKey).toBeNull();
+    expect(result.current.backupFailed).toBe(false);
+  });
+
+  it('reports a failed backup when all slots hold different data', async () => {
+    store.set(STORAGE_KEY, '{bad');
+    store.set(BACKUP_KEY, 'x1');
+    for (let n = 2; n <= 20; n++) store.set(`${BACKUP_KEY}.${n}`, `x${n}`);
+    const { result } = renderHook(() => usePaintingLog());
+    await waitFor(() => expect(result.current.loadError).not.toBeNull());
+    expect(result.current.backupKey).toBeNull();
+    expect(result.current.backupFailed).toBe(true);
+  });
+
   it('startFresh clears the error and resumes saving', async () => {
     store.set(STORAGE_KEY, '{bad');
     const { result } = renderHook(() => usePaintingLog());

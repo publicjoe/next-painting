@@ -69,4 +69,18 @@ describe('UndoToasts', () => {
     const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } }); // jsdom cannot measure contrast
     expect(results.violations).toEqual([]);
   });
+
+  it('stays while focused, even after the mouse enters and leaves', () => {
+    const { onDismiss } = setup();
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    act(() => undo.focus());
+    const toast = undo.closest('div')!;
+    fireEvent.mouseEnter(toast);
+    fireEvent.mouseLeave(toast);
+    wait(TOAST_MS * 2);
+    expect(onDismiss).not.toHaveBeenCalled();
+    act(() => undo.blur());
+    wait(TOAST_MS);
+    expect(onDismiss).toHaveBeenCalledWith('t1');
+  });
 });
