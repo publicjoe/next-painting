@@ -9,6 +9,7 @@ interface SidebarProps {
   projects: Project[];
   modelsByProject: Map<string, Model[]>;
   selectedCategoryId: string | null;
+  selectedProjectId: string | null;
   onSelectCategory: (id: string) => void;
   onSelectProject: (categoryId: string, projectId: string) => void;
   onAddCategory: (name: string) => void;
@@ -23,6 +24,7 @@ export function Sidebar({
   projects,
   modelsByProject,
   selectedCategoryId,
+  selectedProjectId,
   onSelectCategory,
   onSelectProject,
   onAddCategory,
@@ -153,13 +155,19 @@ export function Sidebar({
                   ) : (
                     catProjects.map((project) => {
                       const { paintedCount, totalCount } = getProjectProgress(modelsByProject.get(project.id) ?? []);
+                      const isSelected = selectedProjectId === project.id;
                       return (
                         <li key={project.id}>
                           <button
                             type="button"
                             onClick={() => onSelectProject(cat.id, project.id)}
                             aria-label={`${project.name}, ${paintedCount} of ${totalCount} models completed`}
-                            className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm text-zinc-300 hover:bg-zinc-700/50"
+                            aria-current={isSelected ? 'true' : undefined}
+                            className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm ${
+                              isSelected
+                                ? 'bg-zinc-600 text-zinc-50 font-medium ring-1 ring-inset ring-zinc-400'
+                                : 'text-zinc-300 hover:bg-zinc-700/50'
+                            }`}
                           >
                             <span className="min-w-0 truncate">{project.name}</span>
                             <span className="shrink-0 text-xs text-zinc-400" aria-hidden="true">
