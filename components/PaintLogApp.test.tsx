@@ -268,25 +268,12 @@ describe('PaintLogApp', () => {
       expect(screen.getByRole('list', { name: 'Projects in D&D' })).toBeTruthy();
     });
 
-    it('clicking a project selects its category, scrolls to its card and focuses it', async () => {
-      const scrollIntoView = vi.fn();
-      window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    it('clicking a project selects its category and shows only that project', async () => {
       await renderApp();
       fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
       expect(screen.getByRole('heading', { level: 1, name: 'D&D' })).toBeTruthy();
-      const card = document.getElementById('project-p2') as HTMLElement;
-      expect(card).toBeTruthy();
-      expect(scrollIntoView).toHaveBeenCalledTimes(1);
-      expect(document.activeElement).toBe(card);
-    });
-
-    it('expands a collapsed project card when revealed from the sidebar', async () => {
-      window.HTMLElement.prototype.scrollIntoView = vi.fn();
-      await renderApp();
-      fireEvent.click(screen.getByRole('button', { name: 'Collapse project Marines' }));
-      expect(screen.queryByLabelText('New model name')).toBeNull();
-      fireEvent.click(screen.getByRole('button', { name: /^Marines, / }));
-      expect(screen.getByLabelText('New model name')).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 2, name: 'Party' })).toBeTruthy();
+      expect(screen.getByLabelText('Project name: Party')).toBeTruthy();
     });
 
     it('shows a muted line for a category with no projects', async () => {
@@ -320,6 +307,90 @@ describe('PaintLogApp', () => {
       expect((await axe(document.body, opts)).violations).toEqual([]);
       fireEvent.click(screen.getByRole('button', { name: 'Collapse projects in WH40k' }));
       expect((await axe(document.body, opts)).violations).toEqual([]);
+    });
+  });
+
+  describe('one project at a time', () => {
+    const nav = () => screen.getByRole('navigation', { name: 'Categories' });
+    const addProject = (name: string) => {
+      type('New project name', name);
+      fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    };
+
+    it('renders a single model table, for the first project of the category', async () => {
+      await renderApp();
+      addProject('Second Squad'); // WH40k now has two projects; creating selects the new one
+      fireEvent.click(within(nav()).getByRole('button', { name: 'WH40k' }));
+      expect(screen.getAllByRole('table')).toHaveLength(1);
+      expect(screen.getByLabelText('Project name: Marines')).toBeTruthy();
+      expect(screen.queryByLabelText('Project name: Second Squad')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Delete model Captain' })).toBeTruthy();
+    });
+
+    it('swaps the table when another project is picked in the sidebar', async () => {
+      await renderApp();
+      addProject('Second Squad');
+      fireEvent.click(screen.getByRole('button', { name: /^Marines, / }));
+      expect(screen.getAllByRole('table')).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Delete model Captain' })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: /^Second Squad, / }));
+      expect(screen.getAllByRole('table')).toHaveLength(1);
+      expect(screen.queryByRole('button', { name: 'Delete model Captain' })).toBeNull();
+      expect(screen.getByLabelText('Project name: Second Squad')).toBeTruthy();
+    });
+
+    it('marks the selected project in the sidebar with aria-current', async () => {
+      await renderApp();
+      const marines = screen.getByRole('button', { name: /^Marines, / });
+      const party = screen.getByRole('button', { name: /^Party, / });
+      expect(marines.getAttribute('aria-current')).toBe('true'); // first of the first category
+      expect(party.getAttribute('aria-current')).toBeNull();
+      fireEvent.click(party);
+      expect(party.getAttribute('aria-current')).toBe('true');
+      expect(marines.getAttribute('aria-current')).toBeNull();
+    });
+
+    it('selecting a category shows its first project', async () => {
+      await renderApp();
+      fireEvent.click(within(nav()).getByRole('button', { name: 'D&D' }));
+      expect(screen.getByLabelText('Project name: Party')).toBeTruthy();
+      expect(screen.queryByLabelText('Project name: Marines')).toBeNull();
+    });
+
+    it('selects a newly created project', async () => {
+      await renderApp();
+      addProject('Tactical Squad');
+      expect(screen.getByLabelText('Project name: Tactical Squad')).toBeTruthy();
+      expect(screen.queryByLabelText('Project name: Marines')).toBeNull();
+      expect(screen.getByRole('button', { name: /^Tactical Squad, / }).getAttribute('aria-current')).toBe('true');
+    });
+
+    it('falls back to another project when the selected one is deleted, and Undo selects it again', async () => {
+      await renderApp();
+      addProject('Second Squad'); // selected
+      fireEvent.click(screen.getByRole('button', { name: 'Delete project Second Squad' }));
+      expect(screen.getByLabelText('Project name: Marines')).toBeTruthy();
+      expect(screen.getAllByRole('table')).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(screen.getByLabelText('Project name: Second Squad')).toBeTruthy();
+      expect(screen.queryByLabelText('Project name: Marines')).toBeNull();
+    });
+
+    it('still shows the empty state for a category without projects', async () => {
+      await renderApp();
+      fireEvent.click(within(nav()).getByRole('button', { name: 'D&D' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete project Party' }));
+      expect(screen.getByText('No Projects Found')).toBeTruthy();
+      expect(screen.queryByRole('table')).toBeNull();
+      const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } }); // see note above
+      expect(results.violations).toEqual([]);
+    });
+
+    it('has no axe violations with a project selected from another category', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
+      const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } }); // see note above
+      expect(results.violations).toEqual([]);
     });
   });
 });

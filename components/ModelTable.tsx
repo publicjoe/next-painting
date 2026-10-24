@@ -63,7 +63,7 @@ export function ModelTable({
   };
 
   return (
-    <div className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700/50">
+    <div className="bg-zinc-800/50 rounded-lg px-4 py-2 border border-zinc-700/50">
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm text-zinc-400">
           <thead className="text-xs uppercase bg-zinc-800/80 text-zinc-300">

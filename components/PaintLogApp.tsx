@@ -29,12 +29,14 @@ interface PendingUndo extends UndoToast {
   removed: RemovedItems;
   /** Category to select again after undoing a category delete. */
   categoryId?: string;
+  /** Project to select again after undoing the delete of the selected project. */
+  projectId?: string;
 }
 
 export default function PaintLogApp() {
   const { state, dispatch, isLoaded, loadError, saveError, startFresh } = usePaintingLog();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   // A validated import waiting for the user to confirm the replace
   const [pendingImport, setPendingImport] = useState<AppState | null>(null);
@@ -43,6 +45,14 @@ export default function PaintLogApp() {
   // Fall back to the first category when nothing (or a deleted category) is selected
   const selectedCategory =
     state.categories.find(c => c.id === selectedCategoryId) ?? state.categories[0];
+
+  // The chosen project if it still exists in the selected category, else that category's first
+  const categoryProjects = useMemo(
+    () => state.projects.filter(p => p.categoryId === selectedCategory?.id),
+    [state.projects, selectedCategory?.id],
+  );
+  const selectedProject =
+    categoryProjects.find(p => p.id === selectedProjectId) ?? categoryProjects[0] ?? null;
 
   const modelsByProject = useMemo(() => {
     // Map, not a plain object: a projectId of '__proto__' must not touch the prototype
@@ -57,10 +67,14 @@ export default function PaintLogApp() {
 
   const handleSelectProject = (categoryId: string, projectId: string) => {
     setSelectedCategoryId(categoryId);
-    setFocusedProjectId(projectId);
+    setSelectedProjectId(projectId);
   };
 
-  const handleFocusHandled = useCallback(() => setFocusedProjectId(null), []);
+  // A category shows its first project, so drop any earlier project choice
+  const handleSelectCategory = (id: string) => {
+    setSelectedCategoryId(id);
+    setSelectedProjectId(null);
+  };
 
   const handleAddCategory = (name: string) => {
     const id = newId();
@@ -75,6 +89,7 @@ export default function PaintLogApp() {
     if (!undo) return;
     dispatch({ type: 'RESTORE_ITEMS', payload: undo.removed });
     if (undo.categoryId) setSelectedCategoryId(undo.categoryId);
+    if (undo.projectId) setSelectedProjectId(undo.projectId);
     dismissToast(id);
   };
 
@@ -87,7 +102,13 @@ export default function PaintLogApp() {
   ) => {
     const removed = removedBy(state, kind, id);
     dispatch(action);
-    const toast: PendingUndo = { id: newId(), message, removed, categoryId: kind === 'category' ? id : undefined };
+    const toast: PendingUndo = {
+      id: newId(),
+      message,
+      removed,
+      categoryId: kind === 'category' ? id : undefined,
+      projectId: kind === 'project' && id === selectedProject?.id ? id : undefined,
+    };
     setUndos(u => [...u, toast].slice(-MAX_TOASTS));
   };
 
@@ -96,6 +117,7 @@ export default function PaintLogApp() {
     if (!cat) return;
     deleteWithUndo('category', id, `Deleted category "${cat.name}" and its projects and models.`, { type: 'DELETE_CATEGORY', payload: id });
     if (selectedCategoryId === id) setSelectedCategoryId(null);
+    if (selectedCategory?.id === id) setSelectedProjectId(null); // a project of another category stays chosen
   };
 
   const handleDeleteProject = (id: string) => {
@@ -115,6 +137,7 @@ export default function PaintLogApp() {
     startFresh(); // clears any load error so the imported data is saved
     dispatch({ type: 'REPLACE_STATE', payload: pendingImport });
     setSelectedCategoryId(null);
+    setSelectedProjectId(null);
     setUndos([]); // their removed items belong to the data just replaced
     setPendingImport(null);
   };
@@ -143,10 +166,9 @@ export default function PaintLogApp() {
   };
 
   const handleAddProject = (categoryId: string, name: string) => {
-    dispatch({
-      type: 'ADD_PROJECT',
-      payload: { id: newId(), categoryId, name }
-    });
+    const id = newId();
+    dispatch({ type: 'ADD_PROJECT', payload: { id, categoryId, name } });
+    setSelectedProjectId(id);
   };
 
   const handleAddModel = (projectId: string, name: string) => {
@@ -183,9 +205,10 @@ export default function PaintLogApp() {
       <Sidebar 
         categories={state.categories}
         selectedCategoryId={selectedCategory?.id ?? null}
+        selectedProjectId={selectedProject?.id ?? null}
         projects={state.projects}
         modelsByProject={modelsByProject}
-        onSelectCategory={setSelectedCategoryId}
+        onSelectCategory={handleSelectCategory}
         onSelectProject={handleSelectProject}
         onAddCategory={handleAddCategory}
         onRenameCategory={(id, name) => dispatch({ type: 'UPDATE_CATEGORY', payload: { id, name } })}
@@ -219,10 +242,8 @@ export default function PaintLogApp() {
         {selectedCategory ? (
           <ProjectList 
             category={selectedCategory}
-            projects={state.projects.filter(p => p.categoryId === selectedCategory.id)}
+            project={selectedProject}
             modelsByProject={modelsByProject}
-            focusedProjectId={focusedProjectId}
-            onFocusHandled={handleFocusHandled}
             onAddProject={handleAddProject}
             onUpdateProject={(p) => dispatch({ type: 'UPDATE_PROJECT', payload: p })}
             onDeleteProject={handleDeleteProject}
