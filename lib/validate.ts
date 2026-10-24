@@ -1,5 +1,8 @@
 import type { AppState } from '@/types';
 
+/** Largest model count accepted by the UI and by validation of stored or imported data. */
+export const MAX_MODEL_COUNT = 9999;
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -31,7 +34,7 @@ export function isAppState(value: unknown): value is AppState {
     isRecord(m) &&
     isStr(m.name) &&
     isStr(m.projectId) &&
-    typeof m.count === 'number' && Number.isInteger(m.count) && m.count >= 1 &&
+    typeof m.count === 'number' && Number.isInteger(m.count) && m.count >= 1 && m.count <= MAX_MODEL_COUNT &&
     typeof m.built === 'boolean' &&
     typeof m.primed === 'boolean' &&
     typeof m.painted === 'boolean' &&

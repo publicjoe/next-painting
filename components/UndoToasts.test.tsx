@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { axe } from 'vitest-axe';
+import { axe } from '@/lib/test-axe';
 import { TOAST_MS, UndoToasts } from './UndoToasts';
 
 beforeEach(() => { vi.useFakeTimers(); });

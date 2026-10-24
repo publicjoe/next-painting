@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react';
 import type { Model, StatusField } from '@/types';
 import { InlineEditText } from './InlineEditText';
 import { TrashIcon } from './icons';
+import { isComplete } from '@/lib/progress';
+import { MAX_MODEL_COUNT } from '@/lib/validate';
 
 interface ModelTableProps {
   projectId: string;
@@ -22,12 +24,13 @@ interface StatusCheckboxProps {
 // Status cells are tinted green when ticked and red when not. A model with every
 // stage ticked is complete, and its whole row is tinted green.
 const GREEN = 'bg-green-600/40';
-const isComplete = (m: Model) => m.built && m.primed && m.painted && m.based;
 const statusCellClass = (ticked: boolean) =>
   `px-2 py-0.5 transition-colors ${ticked ? GREEN : 'bg-red-800/40'}`;
 const rowCellClass = (base: string, m: Model) =>
   `${base} transition-colors ${isComplete(m) ? GREEN : ''}`;
 
+// The box border is what marks the control against the red or green cell tint, so
+// it is light enough for 3:1 on both (about 7:1 on red and 4.5:1 on green).
 function StatusCheckbox({ model, field, label, onToggle }: StatusCheckboxProps) {
   return (
     <label className="flex items-center justify-center p-1 cursor-pointer group">
@@ -39,8 +42,8 @@ function StatusCheckbox({ model, field, label, onToggle }: StatusCheckboxProps) 
       />
       <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400 ${
         model[field]
-          ? 'bg-blue-500 border-blue-500 text-white'
-          : 'border-zinc-500 group-hover:border-blue-400 bg-zinc-800'
+          ? 'bg-blue-500 border-zinc-100 text-white'
+          : 'border-zinc-300 group-hover:border-white bg-zinc-900'
       }`}>
         {model[field] && (
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
@@ -50,6 +53,40 @@ function StatusCheckbox({ model, field, label, onToggle }: StatusCheckboxProps) 
       </div>
       <span className="sr-only">{`${label} - ${model.name}`}</span>
     </label>
+  );
+}
+
+// Keeps what the user types as a draft, so the field can be cleared and retyped,
+// and commits a whole number between 1 and MAX_MODEL_COUNT on blur or Enter.
+// Anything else (empty, "1e3", "-2") reverts to the stored count.
+function CountInput({ model, onCommit }: { model: Model; onCommit: (count: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const commit = () => {
+    if (draft === null) return;
+    const text = draft.trim();
+    if (/^\d+$/.test(text)) {
+      const n = Math.min(MAX_MODEL_COUNT, Math.max(1, Number.parseInt(text, 10)));
+      if (n !== model.count) onCommit(n);
+    }
+    setDraft(null);
+  };
+
+  return (
+    <input
+      type="number"
+      min="1"
+      max={MAX_MODEL_COUNT}
+      aria-label={`Count for ${model.name}`}
+      className="bg-zinc-900 border border-zinc-600 rounded px-2 py-0.5 w-16 text-center text-zinc-100 focus:border-blue-500"
+      value={draft ?? String(model.count)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+        if (e.key === 'Escape') setDraft(null);
+      }}
+    />
   );
 }
 
@@ -99,17 +136,7 @@ export function ModelTable({
                 </td>
                 <td className={rowCellClass('px-4 py-0.5', model)}>
                   <div className="flex justify-center flex-col items-center">
-                    <input 
-                      type="number" 
-                      min="1"
-                      aria-label={`Count for ${model.name}`}
-                      className="bg-zinc-900 border border-zinc-600 rounded px-2 py-0.5 w-16 text-center text-zinc-100 focus:border-blue-500"
-                      value={model.count}
-                      onChange={(e) => {
-                        const n = parseInt(e.target.value, 10);
-                        if (!Number.isNaN(n)) onUpdateModel({ ...model, count: Math.max(1, n) });
-                      }}
-                    />
+                    <CountInput model={model} onCommit={(count) => onUpdateModel({ ...model, count })} />
                   </div>
                 </td>
                 <td className={statusCellClass(model.built)}><StatusCheckbox model={model} onToggle={onToggleStatus} field="built" label="Built" /></td>

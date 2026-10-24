@@ -20,6 +20,8 @@ export function usePaintingLog() {
   // could not be read, so no backup was attempted and the data may still be there.
   const [backupFailed, setBackupFailed] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  // True when another tab's write replaced edits this tab had not yet saved
+  const [externalReplaced, setExternalReplaced] = useState(false);
   // Latest state waiting for its debounced write (null when nothing is pending)
   const pendingRef = useRef<AppState | null>(null);
   // State that arrived from another tab: already in storage, so never re-saved
@@ -110,11 +112,17 @@ export function usePaintingLog() {
   }, [state, isLoaded, loadError, flush]);
 
   // Flush on the way out so the last edits survive closing the tab (`pagehide`
-  // also covers bfcache and mobile, where `unload` is unreliable) or unmounting.
+  // also covers bfcache; `visibilitychange` to hidden is the more reliable
+  // signal on mobile Safari) or unmounting.
   useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
     window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       flush();
     };
   }, [flush]);
@@ -135,12 +143,16 @@ export function usePaintingLog() {
       }
       if (!incoming) return;
       externalRef.current = incoming;
-      pendingRef.current = null; // the other tab's write wins over our unsaved edits
+      // The other tab's write wins over our unsaved edits; say so if any were lost
+      if (pendingRef.current) setExternalReplaced(true);
+      pendingRef.current = null;
       dispatch({ type: 'REPLACE_STATE', payload: incoming });
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, [isLoaded, loadError]);
+
+  const dismissExternalNotice = useCallback(() => setExternalReplaced(false), []);
 
   /** Dismiss a load error and resume saving (the raw backup is kept). */
   const startFresh = useCallback(() => {
@@ -150,5 +162,5 @@ export function usePaintingLog() {
     setBackupFailed(false);
   }, []);
 
-  return { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, startFresh };
+  return { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, externalReplaced, dismissExternalNotice, startFresh };
 }

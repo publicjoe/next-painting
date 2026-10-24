@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # npm dependencies: minor and patch updates are grouped into one weekly PR
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+  # GitHub Actions: bumps the SHA pins in .github/workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

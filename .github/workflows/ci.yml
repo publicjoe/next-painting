@@ -19,6 +19,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # Fail on high or critical advisories in production dependencies
+      - run: npm audit --audit-level=high --omit=dev
       - run: npm run lint
       - run: npx next typegen && npx tsc --noEmit
       - run: npm test
@@ -30,3 +32,6 @@ jobs:
           restore-keys: |
             nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
       - run: npm run build
+      # Browser smoke tests (real focus handling and colour contrast), against a production build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
