@@ -71,11 +71,16 @@ describe('PaintLogApp', () => {
   it('toggles a status and updates progress', async () => {
     await renderApp();
     const painted = screen.getByRole('checkbox', { name: /painted - captain/i }) as HTMLInputElement;
+    const based = screen.getByRole('checkbox', { name: /based - captain/i }) as HTMLInputElement;
     expect(painted.checked).toBe(false);
-    expect(screen.getByText('0 / 1 Models Painted')).toBeTruthy();
+    expect(screen.getByText('0 / 1 Models Completed')).toBeTruthy();
+    // Progress counts a model only once it is based, not when it is painted
     fireEvent.click(painted);
     expect(painted.checked).toBe(true);
-    expect(screen.getByText('1 / 1 Models Painted')).toBeTruthy();
+    expect(screen.getByText('0 / 1 Models Completed')).toBeTruthy();
+    fireEvent.click(based);
+    expect(based.checked).toBe(true);
+    expect(screen.getByText('1 / 1 Models Completed')).toBeTruthy();
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100');
   });
 

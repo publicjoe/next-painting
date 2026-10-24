@@ -49,7 +49,7 @@ export function ProjectList({
 
   const getProjectProgress = (projectModels: Model[]) => {
     const totalCount = projectModels.reduce((sum, m) => sum + m.count, 0);
-    const paintedCount = projectModels.filter(m => m.painted).reduce((sum, m) => sum + m.count, 0);
+    const paintedCount = projectModels.filter(m => m.based).reduce((sum, m) => sum + m.count, 0);
     const percentage = totalCount === 0 ? 0 : Math.round((paintedCount / totalCount) * 100);
     
     return { totalCount, paintedCount, percentage };
@@ -128,7 +128,7 @@ export function ProjectList({
                   <div className="flex items-center gap-6 ml-10 md:ml-0">
                     <div className="flex flex-col items-end">
                       <span id={`progress-label-${project.id}`} className="text-xs text-zinc-400 mb-1">
-                        {progress.paintedCount} / {progress.totalCount} Models Painted
+                        {progress.paintedCount} / {progress.totalCount} Models Completed
                       </span>
                       <div
                         role="progressbar"
