@@ -34,6 +34,7 @@ interface PendingUndo extends UndoToast {
 export default function PaintLogApp() {
   const { state, dispatch, isLoaded, loadError, saveError, startFresh } = usePaintingLog();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   // A validated import waiting for the user to confirm the replace
   const [pendingImport, setPendingImport] = useState<AppState | null>(null);
@@ -53,6 +54,13 @@ export default function PaintLogApp() {
     }
     return grouped;
   }, [state.models]);
+
+  const handleSelectProject = (categoryId: string, projectId: string) => {
+    setSelectedCategoryId(categoryId);
+    setFocusedProjectId(projectId);
+  };
+
+  const handleFocusHandled = useCallback(() => setFocusedProjectId(null), []);
 
   const handleAddCategory = (name: string) => {
     const id = newId();
@@ -175,7 +183,10 @@ export default function PaintLogApp() {
       <Sidebar 
         categories={state.categories}
         selectedCategoryId={selectedCategory?.id ?? null}
+        projects={state.projects}
+        modelsByProject={modelsByProject}
         onSelectCategory={setSelectedCategoryId}
+        onSelectProject={handleSelectProject}
         onAddCategory={handleAddCategory}
         onRenameCategory={(id, name) => dispatch({ type: 'UPDATE_CATEGORY', payload: { id, name } })}
         onDeleteCategory={handleDeleteCategory}
@@ -210,6 +221,8 @@ export default function PaintLogApp() {
             category={selectedCategory}
             projects={state.projects.filter(p => p.categoryId === selectedCategory.id)}
             modelsByProject={modelsByProject}
+            focusedProjectId={focusedProjectId}
+            onFocusHandled={handleFocusHandled}
             onAddProject={handleAddProject}
             onUpdateProject={(p) => dispatch({ type: 'UPDATE_PROJECT', payload: p })}
             onDeleteProject={handleDeleteProject}

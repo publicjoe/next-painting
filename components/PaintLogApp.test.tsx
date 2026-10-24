@@ -234,4 +234,92 @@ describe('PaintLogApp', () => {
       expect(results.violations).toEqual([]);
     });
   });
+  describe('sidebar project tree', () => {
+    const nav = () => screen.getByRole('navigation', { name: 'Categories' });
+
+    it('lists each category\'s projects underneath it with a completed count', async () => {
+      await renderApp();
+      const marines = within(within(nav()).getByRole('list', { name: 'Projects in WH40k' }));
+      expect(marines.getByRole('button', { name: 'Marines, 0 of 1 models completed' })).toBeTruthy();
+      expect(marines.queryByText('Party')).toBeNull();
+      expect(within(nav()).getByRole('list', { name: 'Projects in D&D' })).toBeTruthy();
+    });
+
+    it('collapses and expands a category\'s projects', async () => {
+      await renderApp();
+      const toggle = screen.getByRole('button', { name: 'Collapse projects in WH40k' });
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      const listId = toggle.getAttribute('aria-controls') as string;
+      expect(document.getElementById(listId)).toBeTruthy();
+
+      fireEvent.click(toggle);
+      const expand = screen.getByRole('button', { name: 'Expand projects in WH40k' });
+      expect(expand.getAttribute('aria-expanded')).toBe('false');
+      expect(screen.queryByRole('list', { name: 'Projects in WH40k' })).toBeNull(); // hidden
+
+      fireEvent.click(expand);
+      expect(screen.getByRole('list', { name: 'Projects in WH40k' })).toBeTruthy();
+    });
+
+    it('selecting a collapsed category expands it', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse projects in D&D' }));
+      fireEvent.click(within(nav()).getByRole('button', { name: 'D&D' }));
+      expect(screen.getByRole('list', { name: 'Projects in D&D' })).toBeTruthy();
+    });
+
+    it('clicking a project selects its category, scrolls to its card and focuses it', async () => {
+      const scrollIntoView = vi.fn();
+      window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
+      expect(screen.getByRole('heading', { level: 1, name: 'D&D' })).toBeTruthy();
+      const card = document.getElementById('project-p2') as HTMLElement;
+      expect(card).toBeTruthy();
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(card);
+    });
+
+    it('expands a collapsed project card when revealed from the sidebar', async () => {
+      window.HTMLElement.prototype.scrollIntoView = vi.fn();
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse project Marines' }));
+      expect(screen.queryByLabelText('New model name')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: /^Marines, / }));
+      expect(screen.getByLabelText('New model name')).toBeTruthy();
+    });
+
+    it('shows a muted line for a category with no projects', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Category' }));
+      type('New category name', 'Necrons');
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+      const list = within(nav()).getByRole('list', { name: 'Projects in Necrons' });
+      expect(within(list).getByText('No projects')).toBeTruthy();
+    });
+
+    it('removes a deleted project from the tree and Undo brings it back', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Delete project Marines' }));
+      expect(screen.queryByRole('button', { name: /^Marines, / })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(screen.getByRole('button', { name: /^Marines, / })).toBeTruthy();
+    });
+
+    it('removes a deleted category\'s projects and Undo restores them', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Delete category D&D' }));
+      expect(screen.queryByRole('button', { name: /^Party, / })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(screen.getByRole('button', { name: /^Party, / })).toBeTruthy();
+    });
+
+    it('has no axe violations with the tree expanded and collapsed', async () => {
+      await renderApp();
+      const opts = { rules: { 'color-contrast': { enabled: false } } }; // see note above
+      expect((await axe(document.body, opts)).violations).toEqual([]);
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse projects in WH40k' }));
+      expect((await axe(document.body, opts)).violations).toEqual([]);
+    });
+  });
 });
