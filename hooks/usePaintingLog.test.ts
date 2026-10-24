@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { BACKUP_KEY, SAVE_DEBOUNCE_MS, usePaintingLog } from './usePaintingLog';
 import { STORAGE_KEY } from '@/lib/migrate';
 import { seeded } from '@/lib/test-fixtures';
@@ -163,6 +163,43 @@ describe('usePaintingLog debounced persistence', () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 
+  describe('visibilitychange', () => {
+    const setVisibility = (value: DocumentVisibilityState) => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value });
+    };
+    afterEach(() => {
+      Reflect.deleteProperty(document, 'visibilityState');
+      cleanup(); // unmount earlier hooks so their listeners cannot answer later events
+    });
+
+    it('flushes a pending write when the page becomes hidden', () => {
+      const { result } = renderHook(() => usePaintingLog());
+      add(result, 'a');
+      expect(stored().categories).toEqual([]);
+      setVisibility('hidden');
+      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+      expect(stored().categories).toEqual([{ id: 'a', name: 'a' }]);
+    });
+
+    it('does not flush when the page becomes visible', () => {
+      const { result } = renderHook(() => usePaintingLog());
+      add(result, 'a');
+      setVisibility('visible');
+      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+      expect(stored().categories).toEqual([]);
+    });
+
+    it('stops listening after unmount', () => {
+      const { result, unmount } = renderHook(() => usePaintingLog());
+      add(result, 'a');
+      unmount(); // flushes once itself
+      setItem.mockClear();
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(setItem).not.toHaveBeenCalled();
+    });
+  });
+
   it('flushes a pending write on unmount', () => {
     const { result, unmount } = renderHook(() => usePaintingLog());
     add(result, 'a');
@@ -244,5 +281,38 @@ describe('usePaintingLog multi-tab sync', () => {
     act(() => { vi.advanceTimersByTime(SAVE_DEBOUNCE_MS); });
     expect(setItem).not.toHaveBeenCalled();
     expect(result.current.state).toEqual(seeded);
+  });
+
+  it('flags externalReplaced when unsaved edits are dropped, until dismissed', () => {
+    const { result } = renderHook(() => usePaintingLog());
+    expect(result.current.externalReplaced).toBe(false);
+    act(() => result.current.dispatch({ type: 'ADD_CATEGORY', payload: { id: 'z', name: 'Z' } }));
+    fire(STORAGE_KEY, JSON.stringify({ version: 1, state: seeded }));
+    expect(result.current.externalReplaced).toBe(true);
+    act(() => result.current.dismissExternalNotice());
+    expect(result.current.externalReplaced).toBe(false);
+  });
+
+  it('does not flag externalReplaced when nothing was pending', () => {
+    const { result } = renderHook(() => usePaintingLog());
+    fire(STORAGE_KEY, JSON.stringify({ version: 1, state: seeded }));
+    expect(result.current.state).toEqual(seeded);
+    expect(result.current.externalReplaced).toBe(false);
+  });
+
+  it('does not flag externalReplaced when the edit had already been saved', () => {
+    const { result } = renderHook(() => usePaintingLog());
+    act(() => result.current.dispatch({ type: 'ADD_CATEGORY', payload: { id: 'z', name: 'Z' } }));
+    act(() => { vi.advanceTimersByTime(SAVE_DEBOUNCE_MS); });
+    fire(STORAGE_KEY, JSON.stringify({ version: 1, state: seeded }));
+    expect(result.current.externalReplaced).toBe(false);
+  });
+
+  it('does not flag externalReplaced for an ignored invalid write', () => {
+    const { result } = renderHook(() => usePaintingLog());
+    act(() => result.current.dispatch({ type: 'ADD_CATEGORY', payload: { id: 'z', name: 'Z' } }));
+    fire(STORAGE_KEY, '{nope');
+    expect(result.current.externalReplaced).toBe(false);
+    expect(result.current.state.categories).toHaveLength(1);
   });
 });

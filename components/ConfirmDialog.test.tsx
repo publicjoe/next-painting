@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { axe } from 'vitest-axe';
+import { axe } from '@/lib/test-axe';
 import { ConfirmDialog } from './ConfirmDialog';
 
 afterEach(cleanup);

@@ -99,7 +99,7 @@ export function ProjectList({
             <div className="flex items-center gap-6">
               <div className="flex flex-col items-end">
                 <span id={`progress-label-${project.id}`} className="text-xs text-zinc-400 mb-1">
-                  {progress.paintedCount} / {progress.totalCount} Models Completed
+                  {progress.completedCount} / {progress.totalCount} Models Completed
                 </span>
                 <div
                   role="progressbar"

@@ -34,7 +34,7 @@ interface PendingUndo extends UndoToast {
 }
 
 export default function PaintLogApp() {
-  const { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, startFresh } = usePaintingLog();
+  const { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, externalReplaced, dismissExternalNotice, startFresh } = usePaintingLog();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -245,6 +245,14 @@ export default function PaintLogApp() {
           <div role="alert" className="flex items-center gap-3 bg-red-900/60 px-4 py-2 text-sm text-red-100">
             <span className="flex-1">{importError}</span>
             <button type="button" onClick={() => setImportError(null)} className="rounded bg-red-800 px-3 py-1 font-medium hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300">
+              Dismiss
+            </button>
+          </div>
+        )}
+        {externalReplaced && (
+          <div role="status" className="flex items-center gap-3 bg-amber-900/60 px-4 py-2 text-sm text-amber-100">
+            <span className="flex-1">Another tab saved changes, so your unsaved edits in this tab were replaced.</span>
+            <button type="button" onClick={dismissExternalNotice} className="rounded bg-amber-700 px-3 py-1 font-medium hover:bg-amber-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300">
               Dismiss
             </button>
           </div>

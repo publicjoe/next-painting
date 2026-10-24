@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAppState } from '@/lib/validate';
+import { isAppState, MAX_MODEL_COUNT } from '@/lib/validate';
 import { seeded } from '@/lib/test-fixtures';
 
 const clone = () => structuredClone(seeded);
@@ -9,6 +9,11 @@ const withModel = (patch: Record<string, unknown>) => {
 };
 
 describe('isAppState', () => {
+  it('accepts the maximum model count and rejects one above it', () => {
+    expect(isAppState(withModel({ count: MAX_MODEL_COUNT }))).toBe(true);
+    expect(isAppState(withModel({ count: MAX_MODEL_COUNT + 1 }))).toBe(false);
+  });
+
   it('accepts a valid state and an empty one', () => {
     expect(isAppState(seeded)).toBe(true);
     expect(isAppState({ categories: [], projects: [], models: [] })).toBe(true);

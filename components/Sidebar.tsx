@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Category, Model, Project } from '@/types';
 import { getProjectProgress } from '@/lib/progress';
 import { InlineEditText } from './InlineEditText';
@@ -19,6 +19,12 @@ interface SidebarProps {
   onImport: (file: File) => void;
 }
 
+/** Where focus should land once the render that removed the focused control has committed. */
+type FocusTarget =
+  | { kind: 'category'; id: string }
+  | { kind: 'newCategory'; knownIds: Set<string> }
+  | { kind: 'addButton' };
+
 export function Sidebar({
   categories,
   projects,
@@ -36,13 +42,48 @@ export function Sidebar({
   const [isAdding, setIsAdding] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Shown when an add or rename is refused because the name is already used
+  const [nameError, setNameError] = useState<string | null>(null);
   // Categories are expanded unless collapsed here; not persisted
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const fileInput = useRef<HTMLInputElement>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const categoryButtons = useRef(new Map<string, HTMLButtonElement>());
+  const focusTarget = useRef<FocusTarget | null>(null);
+
+  // Adding or renaming unmounts the control that held focus, which drops it to
+  // <body>. Hand it to the logical successor, but only when focus really was
+  // lost: a user who tabbed or clicked elsewhere keeps their place.
+  useEffect(() => {
+    const target = focusTarget.current;
+    if (!target) return;
+    focusTarget.current = null;
+    let el: HTMLButtonElement | null | undefined;
+    if (target.kind === 'addButton') el = addButton.current;
+    else if (target.kind === 'category') el = categoryButtons.current.get(target.id);
+    else {
+      const added = categories.find(c => !target.knownIds.has(c.id));
+      el = added && categoryButtons.current.get(added.id);
+    }
+    if (el && (!document.activeElement || document.activeElement === document.body)) el.focus();
+  });
+
+  // Category names must be unique (ignoring case and surrounding spaces), because
+  // the buttons are labelled by name and two identical ones are ambiguous.
+  const isNameTaken = (name: string, exceptId?: string) => {
+    const wanted = name.trim().toLowerCase();
+    return categories.some(c => c.id !== exceptId && c.name.trim().toLowerCase() === wanted);
+  };
 
   const handleAdd = (e: FormEvent) => {
     e.preventDefault();
+    if (isNameTaken(newCatName)) {
+      setNameError(`A category named "${newCatName.trim()}" already exists.`);
+      return;
+    }
     if (newCatName.trim()) {
+      setNameError(null);
+      focusTarget.current = { kind: 'newCategory', knownIds: new Set(categories.map(c => c.id)) };
       onAddCategory(newCatName.trim());
       setNewCatName('');
       setIsAdding(false);
@@ -57,6 +98,8 @@ export function Sidebar({
   };
 
   const cancelAdd = () => {
+    focusTarget.current = { kind: 'addButton' };
+    setNameError(null);
     setNewCatName('');
     setIsAdding(false);
   };
@@ -110,12 +153,26 @@ export function Sidebar({
                       ariaLabel={`Category name: ${cat.name}`}
                       className="flex-1 min-w-0 m-1 bg-zinc-900 border border-zinc-700 text-zinc-100 text-sm rounded p-1 focus:border-blue-500"
                       value={cat.name}
-                      onCommit={(name) => onRenameCategory(cat.id, name)}
-                      onFinish={() => setEditingId(null)}
+                      onCommit={(name) => {
+                        if (isNameTaken(name, cat.id)) {
+                          setNameError(`A category named "${name.trim()}" already exists, so "${cat.name}" was not renamed.`);
+                          return;
+                        }
+                        setNameError(null);
+                        onRenameCategory(cat.id, name);
+                      }}
+                      onFinish={() => {
+                        focusTarget.current = { kind: 'category', id: cat.id };
+                        setEditingId(null);
+                      }}
                     />
                   ) : (
                     <button
                       type="button"
+                      ref={(el) => {
+                        if (el) categoryButtons.current.set(cat.id, el);
+                        else categoryButtons.current.delete(cat.id);
+                      }}
                       onClick={() => selectCategory(cat.id)}
                       aria-current={selectedCategoryId === cat.id ? 'true' : undefined}
                       className="flex-1 min-w-0 text-left p-2 rounded-lg truncate"
@@ -154,14 +211,13 @@ export function Sidebar({
                     <li className="px-2 py-1 text-xs text-zinc-400">No projects</li>
                   ) : (
                     catProjects.map((project) => {
-                      const { paintedCount, totalCount } = getProjectProgress(modelsByProject.get(project.id) ?? []);
+                      const { completedCount, totalCount } = getProjectProgress(modelsByProject.get(project.id) ?? []);
                       const isSelected = selectedProjectId === project.id;
                       return (
                         <li key={project.id}>
                           <button
                             type="button"
                             onClick={() => onSelectProject(cat.id, project.id)}
-                            aria-label={`${project.name}, ${paintedCount} of ${totalCount} models completed`}
                             aria-current={isSelected ? 'true' : undefined}
                             className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm ${
                               isSelected
@@ -170,8 +226,9 @@ export function Sidebar({
                             }`}
                           >
                             <span className="min-w-0 truncate">{project.name}</span>
-                            <span className="shrink-0 text-xs text-zinc-400" aria-hidden="true">
-                              {paintedCount}/{totalCount}
+                            <span className="sr-only">{`, ${completedCount} of ${totalCount} models completed`}</span>
+                            <span className={`shrink-0 text-xs ${isSelected ? 'text-zinc-100' : 'text-zinc-400'}`} aria-hidden="true">
+                              {completedCount}/{totalCount}
                             </span>
                           </button>
                         </li>
@@ -185,9 +242,14 @@ export function Sidebar({
           </ul>
         </nav>
 
+        {nameError && (
+          <p role="alert" className="mt-2 rounded bg-red-900/60 px-3 py-2 text-xs text-red-100">{nameError}</p>
+        )}
+
         {!isAdding ? (
           <button
             type="button"
+            ref={addButton}
             onClick={() => setIsAdding(true)}
             className="flex items-center space-x-2 text-zinc-400 hover:text-zinc-200 w-full p-2 rounded-lg transition-colors mt-2"
           >
@@ -205,7 +267,7 @@ export function Sidebar({
               aria-label="New category name"
               placeholder="Category name"
               value={newCatName}
-              onChange={(e) => setNewCatName(e.target.value)}
+              onChange={(e) => { setNewCatName(e.target.value); setNameError(null); }}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') cancelAdd();
               }}

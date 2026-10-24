@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { axe } from 'vitest-axe';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { axe } from '@/lib/test-axe';
 import PaintLogApp from './PaintLogApp';
 import { STORAGE_KEY } from '@/lib/migrate';
 import { seeded } from '@/lib/test-fixtures';
@@ -74,7 +74,9 @@ describe('PaintLogApp', () => {
     const based = screen.getByRole('checkbox', { name: /based - captain/i }) as HTMLInputElement;
     expect(painted.checked).toBe(false);
     expect(screen.getByText('0 / 1 Models Completed')).toBeTruthy();
-    // Progress counts a model only once it is based, not when it is painted
+    // Progress counts a model only once every stage is ticked
+    fireEvent.click(screen.getByRole('checkbox', { name: /built - captain/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /primed - captain/i }));
     fireEvent.click(painted);
     expect(painted.checked).toBe(true);
     expect(screen.getByText('0 / 1 Models Completed')).toBeTruthy();
@@ -454,6 +456,236 @@ describe('PaintLogApp', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Start fresh' }));
       const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByText(/No backup copy exists/)).toBeTruthy();
+    });
+  });
+
+  describe('sidebar focus', () => {
+    const nav = () => screen.getByRole('navigation', { name: 'Categories' });
+    const startRename = (name: string) => {
+      fireEvent.click(screen.getByRole('button', { name: `Rename category ${name}` }));
+      return screen.getByLabelText(`Category name: ${name}`) as HTMLInputElement;
+    };
+
+    it('moves focus to the new category after adding it', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Category' }));
+      type('New category name', 'Necrons');
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+      expect(document.activeElement).toBe(within(nav()).getByRole('button', { name: 'Necrons' }));
+    });
+
+    it('moves focus to the new category when the form is submitted with Enter', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Category' }));
+      type('New category name', 'Orks');
+      fireEvent.submit(screen.getByLabelText('New category name'));
+      expect(document.activeElement).toBe(within(nav()).getByRole('button', { name: 'Orks' }));
+    });
+
+    it('returns focus to Add Category after Cancel and after Escape', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Category' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add Category' }));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add Category' }));
+      fireEvent.keyDown(screen.getByLabelText('New category name'), { key: 'Escape' });
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add Category' }));
+    });
+
+    it('returns focus to the category button after a rename commit', async () => {
+      await renderApp();
+      const input = startRename('WH40k');
+      expect(document.activeElement).toBe(input);
+      fireEvent.change(input, { target: { value: 'Warhammer' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(document.activeElement).toBe(within(nav()).getByRole('button', { name: 'Warhammer' }));
+    });
+
+    it('returns focus to the category button after a rename is cancelled', async () => {
+      await renderApp();
+      const input = startRename('WH40k');
+      fireEvent.change(input, { target: { value: 'Nope' } });
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(document.activeElement).toBe(within(nav()).getByRole('button', { name: 'WH40k' }));
+    });
+
+    it('does not pull focus back when the user moved it elsewhere', async () => {
+      await renderApp();
+      startRename('WH40k');
+      const exportButton = screen.getByRole('button', { name: 'Export' });
+      act(() => exportButton.focus()); // blurs the input, which finishes the rename
+      expect(screen.queryByLabelText('Category name: WH40k')).toBeNull();
+      expect(document.activeElement).toBe(exportButton);
+    });
+  });
+
+  describe('export', () => {
+    it('downloads the state as pretty JSON named paintlog-YYYY-MM-DD.json', async () => {
+      let blob: Blob | undefined;
+      const createObjectURL = vi.fn((b: Blob) => { blob = b; return 'blob:test-url'; });
+      const revokeObjectURL = vi.fn();
+      vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
+      let download = '';
+      let href = '';
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+        download = this.download;
+        href = this.href;
+      });
+      try {
+        await renderApp();
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+        expect(createObjectURL).toHaveBeenCalledTimes(1);
+        expect(href).toBe('blob:test-url');
+        expect(download).toMatch(/^paintlog-\d{4}-\d{2}-\d{2}\.json$/);
+        expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-url');
+        expect(blob?.type).toBe('application/json');
+        const text = await blob!.text();
+        expect(JSON.parse(text)).toEqual(seeded);
+        expect(text).toBe(JSON.stringify(seeded, null, 2));
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
+  describe('save error', () => {
+    it('shows an alert when saving fails, and clears it once a save succeeds', async () => {
+      await renderApp();
+      const real = Storage.prototype.setItem;
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('QuotaExceededError'); });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      type('New model name', 'Librarian');
+      fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
+      act(() => { window.dispatchEvent(new Event('pagehide')); }); // flush without waiting for the debounce
+      const alert = await screen.findByText(/Changes could not be saved/);
+      expect(alert.closest('[role="alert"]')).toBeTruthy();
+
+      spy.mockImplementation(function (this: Storage, k: string, v: string) { real.call(this, k, v); });
+      type('New model name', 'Chaplain');
+      fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
+      act(() => { window.dispatchEvent(new Event('pagehide')); });
+      await waitFor(() => expect(screen.queryByText(/Changes could not be saved/)).toBeNull());
+    });
+  });
+
+  describe('import while a load error is active', () => {
+    const imported = { categories: [{ id: 'x1', name: 'Imported' }], projects: [], models: [] };
+
+    it('clears the error, replaces the data and saves it', async () => {
+      localStorage.setItem(STORAGE_KEY, '{bad');
+      await renderApp();
+      expect(await screen.findByRole('alert')).toBeTruthy();
+      const file = new File([JSON.stringify(imported)], 'ok.json', { type: 'application/json' });
+      fireEvent.change(screen.getByLabelText('Import data file'), { target: { files: [file] } });
+      const dialog = await screen.findByRole('dialog', { name: 'Replace all data?' });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Replace data' }));
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByRole('heading', { level: 1, name: 'Imported' })).toBeTruthy();
+      await waitFor(() => {
+        expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ version: 1, state: imported });
+      });
+    });
+  });
+
+  describe('undo toasts and import', () => {
+    it('clears undo toasts once an import replaces the data', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }));
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+      const file = new File(
+        [JSON.stringify({ categories: [{ id: 'x1', name: 'Imported' }], projects: [], models: [] })],
+        'ok.json',
+        { type: 'application/json' },
+      );
+      fireEvent.change(screen.getByLabelText('Import data file'), { target: { files: [file] } });
+      const dialog = await screen.findByRole('dialog', { name: 'Replace all data?' });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Replace data' }));
+      expect(screen.getByRole('heading', { level: 1, name: 'Imported' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    });
+  });
+
+  describe('category rename conflicts', () => {
+    const nav = () => screen.getByRole('navigation', { name: 'Categories' });
+    const rename = (from: string, to: string) => {
+      fireEvent.click(screen.getByRole('button', { name: `Rename category ${from}` }));
+      const input = screen.getByLabelText(`Category name: ${from}`);
+      fireEvent.change(input, { target: { value: to } });
+      fireEvent.blur(input);
+    };
+
+    it('refuses a rename to a name another category already has, with a message', async () => {
+      await renderApp();
+      rename('D&D', 'wh40k '); // case and spaces are ignored
+      expect(within(nav()).getByRole('button', { name: 'D&D' })).toBeTruthy();
+      expect(within(nav()).getAllByRole('button', { name: 'WH40k' })).toHaveLength(1);
+      expect(screen.getByRole('alert').textContent).toContain('already exists');
+    });
+
+    it('refuses to add a category whose name already exists, and keeps the form open', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Category' }));
+      type('New category name', 'WH40k');
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+      expect(within(nav()).getAllByRole('button', { name: 'WH40k' })).toHaveLength(1);
+      expect(screen.getByRole('alert').textContent).toContain('already exists');
+      expect(screen.getByLabelText('New category name')).toBeTruthy();
+      type('New category name', 'Tyranids'); // typing clears the message
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('allows keeping a category name unchanged except for case', async () => {
+      await renderApp();
+      rename('WH40k', 'wh40K');
+      expect(within(nav()).getByRole('button', { name: 'wh40K' })).toBeTruthy();
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('treats a blank rename as no change', async () => {
+      await renderApp();
+      rename('WH40k', '   ');
+      expect(within(nav()).getByRole('button', { name: 'WH40k' })).toBeTruthy();
+    });
+
+    it('trims whitespace from the new name', async () => {
+      await renderApp();
+      rename('WH40k', '  Warhammer  ');
+      expect(within(nav()).getByRole('button', { name: 'Warhammer' })).toBeTruthy();
+    });
+  });
+
+  describe('another tab replaces unsaved edits', () => {
+    const fireStorage = (value: string) =>
+      act(() => { window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY, newValue: value })); });
+    const other = { version: 1, state: { categories: [{ id: 'o1', name: 'Other tab' }], projects: [], models: [] } };
+
+    it('shows a dismissible status banner when pending edits are dropped', async () => {
+      await renderApp();
+      type('New model name', 'Librarian'); // pending: not yet past the debounce
+      fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
+      fireStorage(JSON.stringify(other));
+      expect(screen.getByRole('heading', { level: 1, name: 'Other tab' })).toBeTruthy();
+      const banner = screen.getByText(/unsaved edits in this tab were replaced/).closest('[role="status"]') as HTMLElement;
+      expect(banner).toBeTruthy();
+      fireEvent.click(within(banner).getByRole('button', { name: 'Dismiss' }));
+      expect(screen.queryByText(/unsaved edits in this tab were replaced/)).toBeNull();
+    });
+
+    it('shows no banner when nothing was waiting to be saved', async () => {
+      await renderApp();
+      fireStorage(JSON.stringify(other));
+      expect(screen.getByRole('heading', { level: 1, name: 'Other tab' })).toBeTruthy();
+      expect(screen.queryByText(/unsaved edits in this tab were replaced/)).toBeNull();
+    });
+
+    it('has no axe violations with the banner showing', async () => {
+      await renderApp();
+      type('New model name', 'Librarian');
+      fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
+      fireStorage(JSON.stringify(other));
+      const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } }); // see note above
+      expect(results.violations).toEqual([]);
     });
   });
 });
