@@ -193,6 +193,29 @@ describe('PaintLogApp', () => {
       expect(confirmSpy).not.toHaveBeenCalled();
     });
 
+    it('moves focus to Undo after a delete, and to the main area when it is closed', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }));
+      expect(document.activeElement).toBe(undoButton());
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole('main'));
+    });
+
+    it('leaves focus alone when the delete was a mouse click', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }), { detail: 1 });
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+      expect(document.activeElement).not.toBe(undoButton());
+    });
+
+    it('returns focus to the main area after Undo', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }));
+      fireEvent.click(undoButton());
+      expect(document.activeElement).toBe(screen.getByRole('main'));
+    });
+
     it('deletes a project and its models, then restores both', async () => {
       await renderApp();
       fireEvent.click(screen.getByRole('button', { name: 'Delete project Marines' }));
@@ -391,6 +414,46 @@ describe('PaintLogApp', () => {
       fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
       const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } }); // see note above
       expect(results.violations).toEqual([]);
+    });
+  });
+
+  describe('load error', () => {
+    const corrupt = () => {
+      localStorage.setItem(STORAGE_KEY, '{bad');
+      return renderApp();
+    };
+
+    it('asks for confirmation before starting fresh, and Cancel keeps the error', async () => {
+      await corrupt();
+      fireEvent.click(await screen.findByRole('button', { name: 'Start fresh' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(/A raw copy stays in browser storage/)).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('alert').textContent).toContain('could not be read');
+      expect(localStorage.getItem(STORAGE_KEY)).toBe('{bad');
+    });
+
+    it('confirming starts fresh and keeps focus in the main area', async () => {
+      await corrupt();
+      fireEvent.click(await screen.findByRole('button', { name: 'Start fresh' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Start fresh' }));
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole('main'));
+    });
+
+    it('warns that nothing is recoverable when no backup could be written', async () => {
+      localStorage.setItem(STORAGE_KEY, '{bad');
+      const real = Storage.prototype.setItem;
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, k: string, v: string) {
+        if (k.includes('.bak')) throw new Error('QuotaExceededError');
+        real.call(this, k, v);
+      });
+      render(<PaintLogApp />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Start fresh' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(/No backup copy exists/)).toBeTruthy();
     });
   });
 });

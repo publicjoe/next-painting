@@ -3,8 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import Error from './error';
 import { STORAGE_KEY } from '@/lib/migrate';
-
-const BACKUP_KEY = `${STORAGE_KEY}.bak`;
+import { BACKUP_KEY } from '@/lib/backup';
 
 beforeEach(() => localStorage.clear());
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -48,5 +47,36 @@ describe('error boundary', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(BACKUP_KEY)).toBe('raw');
     expect(retry).toHaveBeenCalledOnce();
+  });
+
+  const confirmReset = () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Reset data' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Reset data')!);
+  };
+
+  it('keeps an earlier backup and stores the new copy beside it', () => {
+    localStorage.setItem(BACKUP_KEY, 'older');
+    localStorage.setItem(STORAGE_KEY, 'current');
+    const retry = setup();
+    confirmReset();
+    expect(localStorage.getItem(BACKUP_KEY)).toBe('older');
+    expect(localStorage.getItem(`${BACKUP_KEY}.2`)).toBe('current');
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it('does not clear the data when no backup could be written', () => {
+    localStorage.setItem(STORAGE_KEY, 'current');
+    const real = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, k: string, v: string) {
+      if (k.includes('.bak')) throw new globalThis.Error('QuotaExceededError');
+      real.call(this, k, v);
+    });
+    const retry = setup();
+    confirmReset();
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('current');
+    expect(retry).not.toHaveBeenCalled();
+    expect(screen.getByText(/nothing was reset/).getAttribute('role')).toBe('alert');
   });
 });

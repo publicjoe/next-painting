@@ -2,9 +2,8 @@
 
 import { useState } from 'react';
 import { STORAGE_KEY } from '@/lib/migrate';
+import { keepBackup } from '@/lib/backup';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-
-const BACKUP_KEY = `${STORAGE_KEY}.bak`;
 
 // Route-level error boundary. Most likely cause here is stored data that the
 // app cannot render, so offer a raw export before any reset.
@@ -31,10 +30,17 @@ export default function Error({ retry }: { error: Error & { digest?: string }; r
 
   const resetAndRetry = () => {
     setConfirmingReset(false);
+    setExportMessage(null);
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw !== null) localStorage.setItem(BACKUP_KEY, raw);
-      localStorage.removeItem(STORAGE_KEY);
+      if (raw !== null) {
+        // Never clear data that has no copy: export it first instead
+        if (!keepBackup(raw)) {
+          setExportMessage('A backup copy could not be written, so nothing was reset. Export the raw data first.');
+          return;
+        }
+        localStorage.removeItem(STORAGE_KEY);
+      }
     } catch { /* storage blocked: retry anyway */ }
     retry();
   };

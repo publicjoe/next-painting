@@ -9,7 +9,7 @@
 // app/layout.tsx stay Server Components and simply render this component.
 // (Client components are still pre-rendered to HTML on the server, then hydrated.)
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { usePaintingLog } from '@/hooks/usePaintingLog';
 import { isAppState } from '@/lib/validate';
 import { migrate } from '@/lib/migrate';
@@ -34,12 +34,17 @@ interface PendingUndo extends UndoToast {
 }
 
 export default function PaintLogApp() {
-  const { state, dispatch, isLoaded, loadError, saveError, startFresh } = usePaintingLog();
+  const { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, startFresh } = usePaintingLog();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   // A validated import waiting for the user to confirm the replace
   const [pendingImport, setPendingImport] = useState<AppState | null>(null);
+  const [confirmingFresh, setConfirmingFresh] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+  // Whether the latest click was a keyboard activation (a click with detail 0).
+  // Only then does a delete pull focus to Undo; mouse users keep their pointer.
+  const keyboardClickRef = useRef(false);
   const [undos, setUndos] = useState<PendingUndo[]>([]);
 
   // Fall back to the first category when nothing (or a deleted category) is selected
@@ -84,13 +89,19 @@ export default function PaintLogApp() {
 
   const dismissToast = useCallback((id: string) => setUndos(u => u.filter(t => t.id !== id)), []);
 
+  // A toast closed by the user held focus; hand it to the main area, not <body>
+  const closeToast = (id: string) => {
+    dismissToast(id);
+    mainRef.current?.focus();
+  };
+
   const handleUndo = (id: string) => {
     const undo = undos.find(t => t.id === id);
     if (!undo) return;
     dispatch({ type: 'RESTORE_ITEMS', payload: undo.removed });
     if (undo.categoryId) setSelectedCategoryId(undo.categoryId);
     if (undo.projectId) setSelectedProjectId(undo.projectId);
-    dismissToast(id);
+    closeToast(id);
   };
 
   // Deletes apply at once; the toast keeps what was removed so Undo can put it back
@@ -105,6 +116,7 @@ export default function PaintLogApp() {
     const toast: PendingUndo = {
       id: newId(),
       message,
+      focus: keyboardClickRef.current,
       removed,
       categoryId: kind === 'category' ? id : undefined,
       projectId: kind === 'project' && id === selectedProject?.id ? id : undefined,
@@ -201,7 +213,10 @@ export default function PaintLogApp() {
   }
 
   return (
-    <div className="flex flex-col md:flex-row h-dvh bg-zinc-900 text-zinc-100 overflow-hidden font-sans selection:bg-blue-500/30">
+    <div
+      onClickCapture={(e) => { keyboardClickRef.current = e.detail === 0; }}
+      className="flex flex-col md:flex-row h-dvh bg-zinc-900 text-zinc-100 overflow-hidden font-sans selection:bg-blue-500/30"
+    >
       <Sidebar 
         categories={state.categories}
         selectedCategoryId={selectedCategory?.id ?? null}
@@ -217,11 +232,11 @@ export default function PaintLogApp() {
         onImport={handleImport}
       />
       
-      <main className="flex-1 flex flex-col min-w-0 h-full">
+      <main ref={mainRef} tabIndex={-1} className="focus-visible:outline-offset-[-2px] flex-1 flex flex-col min-w-0 h-full">
         {loadError && (
           <div role="alert" className="flex flex-wrap items-center gap-3 bg-amber-900/60 px-4 py-2 text-sm text-amber-100">
             <span className="flex-1">{loadError} Saving is paused until you start fresh or import a file.</span>
-            <button type="button" onClick={startFresh} className="rounded bg-amber-700 px-3 py-1 font-medium hover:bg-amber-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300">
+            <button type="button" onClick={() => setConfirmingFresh(true)} className="rounded bg-amber-700 px-3 py-1 font-medium hover:bg-amber-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300">
               Start fresh
             </button>
           </div>
@@ -289,7 +304,26 @@ export default function PaintLogApp() {
         )}
       </main>
 
-      <UndoToasts toasts={undos} onUndo={handleUndo} onDismiss={dismissToast} />
+      <UndoToasts toasts={undos} onUndo={handleUndo} onDismiss={dismissToast} onClose={closeToast} />
+      {confirmingFresh && (
+        <ConfirmDialog
+          title="Start fresh?"
+          description={
+            backupKey
+              ? `Your unreadable data will be replaced with an empty log. A raw copy stays in browser storage as "${backupKey}".`
+              : backupFailed
+                ? 'Your unreadable data will be replaced with an empty log. No backup copy exists, so it cannot be recovered afterwards.'
+                : 'Saving will resume and may replace whatever is in browser storage, which could not be read. No backup copy was made.'
+          }
+          confirmLabel="Start fresh"
+          onConfirm={() => {
+            setConfirmingFresh(false);
+            startFresh();
+            mainRef.current?.focus(); // the banner holding the trigger is gone
+          }}
+          onCancel={() => setConfirmingFresh(false)}
+        />
+      )}
       {pendingImport && (
         <ConfirmDialog
           title="Replace all data?"
