@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PaintLog
 
-## Getting Started
+A tracker for tabletop miniature painting projects. Organise models into
+categories and projects, then tick off built, primed, painted and based. Data
+lives in your browser's `localStorage`, so there is no backend or database. You
+can export and import everything as JSON.
 
-First, run the development server:
+Stack: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, ESLint,
+Vitest with Testing Library and axe.
+
+## Getting started
+
+Node 22 or later (see `.nvmrc`; CI uses the same version).
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Scripts
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Dev server at http://localhost:3000 |
+| `npm run build` | Production build (also type-checks) |
+| `npm start` | Serve the production build |
+| `npm run lint` | ESLint |
+| `npm test` | Vitest: reducer, validation, migration, hook and component (axe) tests |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+CI also runs `npx next typegen && npx tsc --noEmit` before the tests.
 
-## Learn More
+## Project layout
 
-To learn more about Next.js, take a look at the following resources:
+| Path | Role |
+| --- | --- |
+| `app/` | Routes. `layout.tsx` and `page.tsx` are Server Components, `error.tsx` is the error boundary, `icon.svg` is the favicon |
+| `components/` | `PaintLogApp.tsx` is the single `'use client'` boundary; `Sidebar`, `ProjectList`, `ModelTable` and `InlineEditText` sit beneath it |
+| `hooks/` | `usePaintingLog.ts`: reducer plus persistence (debounced saves, multi-tab sync) |
+| `lib/` | Pure logic: `state.ts` (reducer), `validate.ts` (`isAppState`), `migrate.ts` (storage versions), `id.ts` |
+| `types/` | Shared TypeScript types |
+| `docs/` | [nextjs-notes.md](docs/nextjs-notes.md): server vs client components, hydration, routing |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Tests sit beside the code they cover (`*.test.ts`, `*.test.tsx`).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Data format and versioning
 
-## Deploy on Vercel
+State is stored under the `painting-log-state` key as a versioned envelope:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```json
+{
+  "version": 1,
+  "state": {
+    "categories": [{ "id": "…", "name": "Warhammer 40k" }],
+    "projects": [{ "id": "…", "categoryId": "…", "name": "Space Marines" }],
+    "models": [{
+      "id": "…", "projectId": "…", "name": "Captain", "count": 1,
+      "built": false, "primed": false, "painted": false, "based": false
+    }]
+  }
+}
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `lib/migrate.ts` reads the current envelope and the legacy unversioned shape
+  (a bare `state` object), which is re-saved as v1. Unknown versions are
+  rejected rather than guessed at.
+- `lib/validate.ts` checks every item and its references (unique ids, no
+  orphaned projects or models) before data is accepted from storage, another tab
+  or an imported file.
+- Unreadable stored data is copied to `painting-log-state.bak` and never
+  overwritten until you choose "Start fresh".
+- Edits are saved after a 300 ms pause, and immediately on `pagehide` or unmount.
+  If storage is full or blocked, a banner asks you to export your data.
+- Changes made in another tab are picked up through the `storage` event; invalid
+  external writes are ignored.
+- Export writes the plain `state` object. Import accepts that or a v1 envelope,
+  and shows an inline error for anything else.
