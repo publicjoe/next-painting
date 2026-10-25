@@ -9,3 +9,11 @@ Before any set of changes is committed, add a change note for it in `docs/change
 - **Contents:** a title, the date and time, a short summary, the changes grouped by area with file paths, any bug fixed, the tests added or changed and the result of `tsc`, ESLint, `npm test` and `next build`, and any caveats (for example behaviour only tested in jsdom).
 - **Style:** UK English, plain prose, no en or em dashes, and no AI attribution lines.
 - **If asked to commit or stage:** check that a note exists for the changes first, and write one if it does not. Claude does not run `git commit`; the human does.
+
+## QA before staging
+
+Always run a QA review of the changes before staging them, even if the user only asks to stage.
+
+- Dispatch the `qa-reviewer` agent (fresh context, never the agent that wrote the code) on the uncommitted changes, with an explicit `model`.
+- Fix or report its findings first. Stage only once the user has seen the result, and record the review in the change note.
+- Skip the review only if the user explicitly says to.

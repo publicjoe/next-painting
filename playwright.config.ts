@@ -8,7 +8,10 @@ export default defineConfig({
   testDir: './e2e',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? 'github' : 'list',
+  // In CI: inline PR annotations, an HTML report to upload, and JSON totals for the job summary
+  reporter: process.env.CI
+    ? [['github'], ['html', { open: 'never' }], ['json', { outputFile: 'playwright-results.json' }]]
+    : 'list',
   use: { baseURL: `http://localhost:${PORT}`, trace: 'retain-on-failure' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
