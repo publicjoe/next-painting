@@ -1,7 +1,6 @@
 import { useReducer, useEffect, useState, useCallback, useRef } from 'react';
 import { initialState, reducer } from '@/lib/state';
-import { isAppState } from '@/lib/validate';
-import { migrate, STORAGE_KEY, STORAGE_VERSION } from '@/lib/migrate';
+import { migrateWithReport, STORAGE_KEY, STORAGE_VERSION } from '@/lib/migrate';
 import { BACKUP_KEY, keepBackup } from '@/lib/backup';
 import type { StoredState } from '@/lib/migrate';
 import type { AppState } from '@/types';
@@ -22,6 +21,8 @@ export function usePaintingLog() {
   const [saveError, setSaveError] = useState(false);
   // True when another tab's write replaced edits this tab had not yet saved
   const [externalReplaced, setExternalReplaced] = useState(false);
+  // Set when loading lowered a count or shortened a name to fit the limits
+  const [adjustedNotice, setAdjustedNotice] = useState<string | null>(null);
   // Latest state waiting for its debounced write (null when nothing is pending)
   const pendingRef = useRef<AppState | null>(null);
   // State that arrived from another tab: already in storage, so never re-saved
@@ -44,19 +45,27 @@ export function usePaintingLog() {
       if (stored) {
         let migrated = null;
         try {
-          migrated = migrate(JSON.parse(stored));
+          migrated = migrateWithReport(JSON.parse(stored));
         } catch {
           // JSON.parse failure: handled below like a validation failure
         }
         if (migrated) {
-          dispatch({ type: 'REPLACE_STATE', payload: migrated });
+          if (migrated.adjusted) {
+            // The original numbers and names are lost after the next save, so keep them
+            const kept = keepBackup(stored);
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            setAdjustedNotice(
+              'Some saved counts or names were over the limits and were shortened.' +
+                (kept ? ` A copy of the original data was kept as "${kept}".` : ' A copy of the original data could not be kept.'),
+            );
+          }
+          dispatch({ type: 'REPLACE_STATE', payload: migrated.state });
         } else {
           // Unreadable: keep a copy of the raw string and do NOT let the
           // persist effect overwrite it until the user chooses to start fresh.
           const kept = keepBackup(stored);
           if (kept) console.error('Stored state is unreadable; raw copy kept under', kept);
           else console.error('Stored state is unreadable and no backup could be written');
-          // eslint-disable-next-line react-hooks/set-state-in-effect
           setBackupKey(kept);
           setBackupFailed(kept === null);
           setLoadError(
@@ -136,8 +145,7 @@ export function usePaintingLog() {
       if (e.storageArea && e.storageArea !== localStorage) return;
       let incoming: AppState | null = null;
       try {
-        const candidate = migrate(JSON.parse(e.newValue));
-        if (isAppState(candidate)) incoming = candidate;
+        incoming = migrateWithReport(JSON.parse(e.newValue))?.state ?? null;
       } catch {
         // invalid JSON: ignored
       }
@@ -153,6 +161,7 @@ export function usePaintingLog() {
   }, [isLoaded, loadError]);
 
   const dismissExternalNotice = useCallback(() => setExternalReplaced(false), []);
+  const dismissAdjustedNotice = useCallback(() => setAdjustedNotice(null), []);
 
   /** Dismiss a load error and resume saving (the raw backup is kept). */
   const startFresh = useCallback(() => {
@@ -161,7 +170,8 @@ export function usePaintingLog() {
     setBackupKey(null);
     setBackupFailed(false);
     setExternalReplaced(false);
+    setAdjustedNotice(null);
   }, []);
 
-  return { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, externalReplaced, dismissExternalNotice, startFresh };
+  return { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, externalReplaced, dismissExternalNotice, adjustedNotice, dismissAdjustedNotice, startFresh };
 }

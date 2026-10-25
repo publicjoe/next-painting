@@ -25,9 +25,17 @@ async function seed(page: Page, raw: string) {
 
 test('the main screen has no axe violations, contrast included', async ({ page }) => {
   await seed(page, JSON.stringify({ version: 1, state }));
-  await expect(page.getByRole('heading', { level: 1, name: 'WH40k' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'WH40k' })).toBeVisible();
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(' | ')}`)).toEqual([]);
+});
+
+test('the page has one h1, and the selected project button is named with its progress', async ({ page }) => {
+  await seed(page, JSON.stringify({ version: 1, state }));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+  await expect(page.getByRole('heading', { level: 1, name: 'Painting Log' })).toBeVisible();
+  // Captain (1) is finished; Librarian (2) and Scout (5) are not: 1 of 8
+  await expect(page.getByRole('button', { name: /^Marines/ })).toHaveAccessibleName(/^Marines.*1 of 8 models completed/);
 });
 
 test('a keyboard delete puts focus on Undo, and Dismiss hands it to the main area', async ({ page }) => {

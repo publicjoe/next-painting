@@ -28,7 +28,7 @@ All changes are in `components/ModelTable.tsx`.
 ## Tests
 
 - No new tests. Existing tests do not assert on colours or spacing, and all 116 still pass.
-- `tsc` and ESLint are clean. `next build` was not re-run for this change.
+- `tsc` and ESLint are clean. `next build` was not re-run when this note was written. It was run later, in the QA review of this commit, and passes.
 
 ## Notes
 

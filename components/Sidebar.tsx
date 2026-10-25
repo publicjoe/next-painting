@@ -56,6 +56,9 @@ export function Sidebar({
   // Adding or renaming unmounts the control that held focus, which drops it to
   // <body>. Hand it to the logical successor, but only when focus really was
   // lost: a user who tabbed or clicked elsewhere keeps their place.
+  // Caveat: the activeElement === body guard has only been tested in Chromium. Safari
+  // does not give focus to a clicked button, so its activeElement can differ after a
+  // mouse-driven rename and this restore may not run there.
   useEffect(() => {
     const target = focusTarget.current;
     if (!target) return;
@@ -70,11 +73,13 @@ export function Sidebar({
     if (el && (!document.activeElement || document.activeElement === document.body)) el.focus();
   });
 
-  // Category names must be unique (ignoring case and surrounding spaces), because
+  // Category names must be unique (ignoring case, surrounding spaces and Unicode
+  // composition, so "Cafe" with a combining accent matches the composed form), because
   // the buttons are labelled by name and two identical ones are ambiguous.
+  const canonical = (name: string) => name.trim().normalize('NFC').toLowerCase();
   const isNameTaken = (name: string, exceptId?: string) => {
-    const wanted = name.trim().toLowerCase();
-    return categories.some(c => c.id !== exceptId && c.name.trim().toLowerCase() === wanted);
+    const wanted = canonical(name);
+    return categories.some(c => c.id !== exceptId && canonical(c.name) === wanted);
   };
 
   const handleAdd = (e: FormEvent) => {
@@ -110,9 +115,9 @@ export function Sidebar({
   return (
     <aside className="w-full md:w-96 bg-zinc-800 border-b md:border-b-0 md:border-r border-zinc-700 flex flex-col md:h-full max-h-[40vh] md:max-h-none overflow-y-auto md:overflow-visible">
       <div className="p-4 border-b border-zinc-700">
-        <p className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">
+        <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">
           Painting Log
-        </p>
+        </h1>
       </div>
       
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -141,7 +146,7 @@ export function Sidebar({
                     aria-expanded={isOpen}
                     aria-controls={listId}
                     aria-label={`${isOpen ? 'Collapse' : 'Expand'} projects in ${cat.name}`}
-                    className="p-1 ml-1 rounded hover:text-blue-300"
+                    className="p-2 ml-1 rounded hover:text-blue-300"
                   >
                     <svg
                       className={`w-4 h-4 transition-transform motion-reduce:transition-none ${isOpen ? 'rotate-90' : ''}`}
@@ -196,7 +201,7 @@ export function Sidebar({
                   <button
                     type="button"
                     onClick={() => { setNameError(null); setEditingId(cat.id); }}
-                    className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 p-1 hover:text-blue-300 transition-opacity"
+                    className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 p-2 hover:text-blue-300 transition-opacity"
                     title="Rename Category"
                     aria-label={`Rename category ${cat.name}`}
                   >
@@ -207,7 +212,7 @@ export function Sidebar({
                   <button
                     type="button"
                     onClick={() => { setNameError(null); onDeleteCategory(cat.id); }}
-                    className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 p-1 mr-1 hover:text-red-400 transition-opacity"
+                    className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 p-2 mr-1 hover:text-red-400 transition-opacity"
                     title="Delete Category"
                     aria-label={`Delete category ${cat.name}`}
                   >

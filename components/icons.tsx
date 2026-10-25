@@ -10,3 +10,12 @@ export function TrashIcon({ className = 'w-5 h-5' }: IconProps) {
     </svg>
   );
 }
+
+/** Empty-state illustration. Sizing and colour come from the className. */
+export function EmptyBoxIcon({ className, strokeWidth = 1 }: IconProps & { strokeWidth?: number }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={strokeWidth} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+    </svg>
+  );
+}

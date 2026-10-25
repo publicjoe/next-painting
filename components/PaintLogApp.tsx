@@ -5,17 +5,19 @@
 // server-rendered-only. This file and everything it imports (Sidebar,
 // ProjectList, ModelTable, usePaintingLog) is bundled for the browser, so they
 // may use state, effects, event handlers and browser APIs (localStorage, Blob,
-// Blob). Those children do not need their own 'use client'. app/page.tsx and
+// URL.createObjectURL). Those children do not need their own 'use client'. app/page.tsx and
 // app/layout.tsx stay Server Components and simply render this component.
 // (Client components are still pre-rendered to HTML on the server, then hydrated.)
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { usePaintingLog } from '@/hooks/usePaintingLog';
-import { isAppState } from '@/lib/validate';
-import { migrate } from '@/lib/migrate';
+import { migrateWithReport, STORAGE_KEY } from '@/lib/migrate';
+import { keepBackup } from '@/lib/backup';
+import { downloadFile } from '@/lib/download';
 import { newId } from '@/lib/id';
 import { removedBy, type RemovedItems } from '@/lib/state';
 import { Sidebar } from '@/components/Sidebar';
+import { EmptyBoxIcon } from '@/components/icons';
 import { ProjectList } from '@/components/ProjectList';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { UndoToasts, type UndoToast } from '@/components/UndoToasts';
@@ -34,12 +36,12 @@ interface PendingUndo extends UndoToast {
 }
 
 export default function PaintLogApp() {
-  const { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, externalReplaced, dismissExternalNotice, startFresh } = usePaintingLog();
+  const { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, externalReplaced, dismissExternalNotice, adjustedNotice, dismissAdjustedNotice, startFresh } = usePaintingLog();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   // A validated import waiting for the user to confirm the replace
-  const [pendingImport, setPendingImport] = useState<AppState | null>(null);
+  const [pendingImport, setPendingImport] = useState<{ state: AppState; adjusted: boolean } | null>(null);
   const [confirmingFresh, setConfirmingFresh] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   // Whether the latest click was a keyboard activation (a click with detail 0).
@@ -146,8 +148,17 @@ export default function PaintLogApp() {
 
   const confirmImport = () => {
     if (!pendingImport) return;
+    // Importing cannot be undone, so keep a copy of what is stored now (if anything).
+    // If a copy is needed and cannot be written, stop rather than destroy the only one.
+    let current: string | null = null;
+    try { current = localStorage.getItem(STORAGE_KEY); } catch { /* unreadable: nothing visible to lose */ }
+    if (current && !keepBackup(current)) {
+      setPendingImport(null);
+      setImportError('Could not import: a backup copy of your current data could not be saved (browser storage may be full). Export your data first, then try again.');
+      return;
+    }
     startFresh(); // clears any load error so the imported data is saved
-    dispatch({ type: 'REPLACE_STATE', payload: pendingImport });
+    dispatch({ type: 'REPLACE_STATE', payload: pendingImport.state });
     setSelectedCategoryId(null);
     setSelectedProjectId(null);
     setUndos([]); // their removed items belong to the data just replaced
@@ -155,22 +166,17 @@ export default function PaintLogApp() {
   };
 
   const handleExport = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `paintlog-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadFile(JSON.stringify(state, null, 2), `paintlog-${new Date().toISOString().slice(0, 10)}.json`);
   };
 
   const handleImport = async (file: File) => {
     setImportError(null);
     try {
       if (file.size > MAX_IMPORT_BYTES) throw new Error('File too large');
-      // migrate() also accepts a versioned envelope; exports are plain AppState
-      const parsed: unknown = migrate(JSON.parse(await file.text()));
-      if (!isAppState(parsed)) throw new Error('Unexpected file format');
+      // migrateWithReport() also accepts a versioned envelope (exports are plain
+      // AppState) and returns validated data, or null for an unusable file
+      const parsed = migrateWithReport(JSON.parse(await file.text()));
+      if (!parsed) throw new Error('Unexpected file format');
       setPendingImport(parsed); // validated; now ask (see confirmImport)
     } catch {
       setImportError('Could not import: the file is not a valid PaintLog export.');
@@ -249,6 +255,14 @@ export default function PaintLogApp() {
             </button>
           </div>
         )}
+        {adjustedNotice && (
+          <div role="status" className="flex items-center gap-3 bg-amber-900/60 px-4 py-2 text-sm text-amber-100">
+            <span className="flex-1">{adjustedNotice}</span>
+            <button type="button" onClick={dismissAdjustedNotice} className="rounded bg-amber-700 px-3 py-1 font-medium hover:bg-amber-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300">
+              Dismiss
+            </button>
+          </div>
+        )}
         {externalReplaced && (
           <div role="status" className="flex items-center gap-3 bg-amber-900/60 px-4 py-2 text-sm text-amber-100">
             <span className="flex-1">Another tab saved changes, so your unsaved edits in this tab were replaced.</span>
@@ -280,9 +294,7 @@ export default function PaintLogApp() {
           <div className="flex-1 flex items-center justify-center p-8 bg-zinc-900">
             <div className="text-center max-w-md">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-zinc-800 mb-6">
-                <svg className="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
+                <EmptyBoxIcon className="w-8 h-8 text-blue-500" strokeWidth={2} />
               </div>
               <h2 className="text-2xl font-bold text-zinc-100 mb-2">Welcome to PaintLog</h2>
               <p className="text-zinc-400 mb-8">
@@ -335,7 +347,10 @@ export default function PaintLogApp() {
       {pendingImport && (
         <ConfirmDialog
           title="Replace all data?"
-          description="Importing replaces all current categories, projects and models. This cannot be undone."
+          description={
+            'Importing replaces all current categories, projects and models. A copy of your current data is kept in browser storage first, when it allows.' +
+            (pendingImport.adjusted ? ' Some counts or names in the file are over the limits and will be shortened.' : '')
+          }
           confirmLabel="Replace data"
           onConfirm={confirmImport}
           onCancel={() => setPendingImport(null)}
