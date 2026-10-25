@@ -1,14 +1,17 @@
-import { useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import type { Project, Model, Category, StatusField } from '@/types';
 import { ModelTable, type MoveTarget } from './ModelTable';
 import { InlineEditText } from './InlineEditText';
 import { EmptyBoxIcon, TrashIcon } from './icons';
 import { getProjectProgress } from '@/lib/progress';
+import { findProjectClash, findProjectRenameClash, projectClashMessage, projectRenameRefusedMessage } from '@/lib/names';
 
 interface ProjectListProps {
   category: Category;
   /** The one project shown in the main area; null when the category has none. */
   project: Project | null;
+  /** Every project of `category`, for the name rule: no two share a name. */
+  categoryProjects: Project[];
   modelsByProject: Map<string, Model[]>;
   onAddProject: (categoryId: string, name: string) => void;
   onUpdateProject: (project: Project) => void;
@@ -24,6 +27,7 @@ interface ProjectListProps {
 export function ProjectList({
   category,
   project,
+  categoryProjects,
   modelsByProject,
   onAddProject,
   onUpdateProject,
@@ -36,13 +40,47 @@ export function ProjectList({
   onMoveModel,
 }: ProjectListProps) {
   const [newProjectName, setNewProjectName] = useState('');
+  // Shown when an add or rename is refused because the name is already used in this
+  // category. Tied to the category or project it was raised for, so it does not follow
+  // the user to another one.
+  const [addError, setAddError] = useState<{ categoryId: string; message: string } | null>(null);
+  const [renameError, setRenameError] = useState<{ projectId: string; message: string } | null>(null);
+  const addInput = useRef<HTMLInputElement>(null);
+  const renameInput = useRef<HTMLInputElement>(null);
+  const refusedRename = useRef(false);
+  const addErrorId = useId();
+  const renameErrorId = useId();
+  // A message and typed text belong to the category or project they were made for. They
+  // are dropped as soon as another is shown (adjusted while rendering, so no stale frame),
+  // so returning to the first one does not bring them back.
+  const [lastCategoryId, setLastCategoryId] = useState(category.id);
+  if (category.id !== lastCategoryId) {
+    setLastCategoryId(category.id);
+    setAddError(null);
+    setNewProjectName('');
+  }
+  const projectId = project?.id ?? null;
+  const [lastProjectId, setLastProjectId] = useState(projectId);
+  if (projectId !== lastProjectId) {
+    setLastProjectId(projectId);
+    setRenameError(null);
+  }
+  const shownAddError = addError?.categoryId === category.id ? addError.message : null;
+  const shownRenameError = project && renameError?.projectId === project.id ? renameError.message : null;
 
   const handleAdd = (e: FormEvent) => {
     e.preventDefault();
-    if (newProjectName.trim()) {
-      onAddProject(category.id, newProjectName.trim());
-      setNewProjectName('');
+    const name = newProjectName.trim();
+    if (!name) return;
+    if (findProjectClash(categoryProjects, category.id, name)) {
+      // Keep what was typed so it can be fixed, and leave focus in the field
+      setAddError({ categoryId: category.id, message: projectClashMessage(name, category.name) });
+      addInput.current?.focus();
+      return;
     }
+    setAddError(null);
+    onAddProject(category.id, name);
+    setNewProjectName('');
   };
 
   const projectModels = project ? (modelsByProject.get(project.id) ?? []) : [];
@@ -56,14 +94,18 @@ export function ProjectList({
           <p className="text-zinc-400 mt-0.625">Manage your projects and units for this category.</p>
         </div>
         
+        <div>
         <form onSubmit={handleAdd} className="flex gap-2">
           <input
             type="text"
+            ref={addInput}
             aria-label="New project name"
+            aria-invalid={shownAddError ? true : undefined}
+            aria-describedby={shownAddError ? addErrorId : undefined}
             className="w-72 min-w-0 bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm rounded-lg focus:border-blue-500 block p-2 placeholder:text-zinc-400"
             placeholder="New Project Name"
             value={newProjectName}
-            onChange={(e) => setNewProjectName(e.target.value)}
+            onChange={(e) => { setNewProjectName(e.target.value); setAddError(null); }}
           />
           <button
             type="submit"
@@ -73,6 +115,10 @@ export function ProjectList({
             Create
           </button>
         </form>
+        {shownAddError && (
+          <p id={addErrorId} role="alert" className="mt-2 rounded bg-red-900/60 px-3 py-2 text-xs text-red-100">{shownAddError}</p>
+        )}
+        </div>
       </header>
 
       {!project ? (
@@ -91,12 +137,41 @@ export function ProjectList({
           </h3>
           {/* Project Header */}
           <div className="px-5 py-2.5 flex flex-col md:flex-row md:items-center justify-between hover:bg-zinc-800/80 transition-colors gap-4">
+            <div className="min-w-0">
             <InlineEditText
+              key={project.id}
+              inputRef={renameInput}
+              invalid={!!shownRenameError}
+              describedBy={renameErrorId}
               ariaLabel={`Project name: ${project.name}`}
               className="text-base font-semibold bg-transparent border-b border-transparent hover:border-zinc-600 focus:border-blue-500 text-zinc-100"
               value={project.name}
-              onCommit={(name) => onUpdateProject({ ...project, name })}
+              onCommit={(name) => {
+                if (findProjectRenameClash(categoryProjects, project, name)) {
+                  // Keep the typed name in the field so it can be corrected
+                  refusedRename.current = true;
+                  // The blur that triggered this commit has just removed focus; put it back
+                  // Only if that field is still on the page (another project may have been chosen)
+                  const field = renameInput.current;
+                  setTimeout(() => { if (field?.isConnected) field.focus(); }, 0);
+                  setRenameError({ projectId: project.id, message: projectRenameRefusedMessage(name, category.name, project.name) });
+                  return;
+                }
+                setRenameError(null);
+                onUpdateProject({ ...project, name });
+              }}
+              onFinish={() => {
+                if (refusedRename.current) {
+                  refusedRename.current = false;
+                  return;
+                }
+                setRenameError(null);
+              }}
             />
+            {shownRenameError && (
+              <p id={renameErrorId} role="alert" className="mt-1 rounded bg-red-900/60 px-3 py-2 text-xs text-red-100">{shownRenameError}</p>
+            )}
+            </div>
 
             <div className="flex items-center gap-6">
               <div className="flex flex-col items-end">

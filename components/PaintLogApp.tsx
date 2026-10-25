@@ -16,6 +16,7 @@ import { keepBackup } from '@/lib/backup';
 import { downloadFile } from '@/lib/download';
 import { newId } from '@/lib/id';
 import { removedBy, type RemovedItems } from '@/lib/state';
+import { findCategoryClash, findImportNameClash, findMoveClash, findProjectClash, findRestoreClash } from '@/lib/names';
 import { Sidebar } from '@/components/Sidebar';
 import { PaintDndProvider } from '@/components/PaintDndProvider';
 import type { MoveTarget } from '@/components/ModelTable';
@@ -42,6 +43,8 @@ export default function PaintLogApp() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  // Why an undo was refused (its name has been taken since the delete); the toast stays
+  const [undoError, setUndoError] = useState<string | null>(null);
   // A validated import waiting for the user to confirm the replace
   const [pendingImport, setPendingImport] = useState<{ state: AppState; adjusted: boolean } | null>(null);
   const [confirmingFresh, setConfirmingFresh] = useState(false);
@@ -106,6 +109,9 @@ export default function PaintLogApp() {
   // first of its category, which would jump away once it leaves, so pin it first.
   // Do not reuse handleSelectCategory: it clears the selected project.
   const handleMoveProject = (id: string, toCategoryId: string, toIndexInCategory: number) => {
+    // The sidebar and the drag provider report a refusal themselves; this keeps the
+    // selection from following a project that the reducer would refuse to move
+    if (findMoveClash(state.projects, id, toCategoryId)) return;
     setSelectedProjectId(selectedProject?.id ?? null);
     if (selectedProject?.id === id) {
       setSelectedCategoryId(toCategoryId); // the heading follows the project
@@ -129,6 +135,7 @@ export default function PaintLogApp() {
   };
 
   const handleAddCategory = (name: string) => {
+    if (findCategoryClash(state.categories, name)) return; // the sidebar has already said why
     const id = newId();
     dispatch({ type: 'ADD_CATEGORY', payload: { id, name } });
     setSelectedCategoryId(id);
@@ -145,6 +152,15 @@ export default function PaintLogApp() {
   const handleUndo = (id: string) => {
     const undo = undos.find(t => t.id === id);
     if (!undo) return;
+    // Names can be taken while the toast is up. Refuse the whole undo and say why, rather
+    // than restore part of a delete or skip an item silently. The toast stays, so the
+    // undo can be tried again once the clashing item is renamed or deleted.
+    const clash = findRestoreClash(state, undo.removed);
+    if (clash) {
+      setUndoError(`Could not undo: ${clash.charAt(0).toLowerCase()}${clash.slice(1)} Rename or delete it, then try Undo again.`);
+      return;
+    }
+    setUndoError(null);
     dispatch({ type: 'RESTORE_ITEMS', payload: undo.removed });
     if (undo.categoryId) setSelectedCategoryId(undo.categoryId);
     if (undo.projectId) setSelectedProjectId(undo.projectId);
@@ -207,6 +223,7 @@ export default function PaintLogApp() {
     setSelectedCategoryId(null);
     setSelectedProjectId(null);
     setUndos([]); // their removed items belong to the data just replaced
+    setUndoError(null);
     setPendingImport(null);
   };
 
@@ -222,6 +239,13 @@ export default function PaintLogApp() {
       // AppState) and returns validated data, or null for an unusable file
       const parsed = migrateWithReport(JSON.parse(await file.text()));
       if (!parsed) throw new Error('Unexpected file format');
+      // Checked here and not in migrate or validate, which also load stored data that may
+      // hold duplicates. Run on the migrated names, which may have been shortened to fit.
+      const clash = findImportNameClash(parsed.state);
+      if (clash) {
+        setImportError(`${clash} Rename one of them in the file and import again.`);
+        return;
+      }
       setPendingImport(parsed); // validated; now ask (see confirmImport)
     } catch {
       setImportError('Could not import: the file is not a valid PaintLog export.');
@@ -229,6 +253,7 @@ export default function PaintLogApp() {
   };
 
   const handleAddProject = (categoryId: string, name: string) => {
+    if (findProjectClash(state.projects, categoryId, name)) return; // the form has already said why
     const id = newId();
     dispatch({ type: 'ADD_PROJECT', payload: { id, categoryId, name } });
     setSelectedProjectId(id);
@@ -312,6 +337,14 @@ export default function PaintLogApp() {
             </button>
           </div>
         )}
+        {undoError && (
+          <div role="alert" className="flex items-center gap-3 bg-red-900/60 px-4 py-2 text-sm text-red-100">
+            <span className="flex-1">{undoError}</span>
+            <button type="button" onClick={() => setUndoError(null)} className="rounded bg-red-800 px-3 py-1 font-medium hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300">
+              Dismiss
+            </button>
+          </div>
+        )}
         {adjustedNotice && (
           <div role="status" className="flex items-center gap-3 bg-amber-900/60 px-4 py-2 text-sm text-amber-100">
             <span className="flex-1">{adjustedNotice}</span>
@@ -337,6 +370,7 @@ export default function PaintLogApp() {
           <ProjectList 
             category={selectedCategory}
             project={selectedProject}
+            categoryProjects={categoryProjects}
             modelsByProject={modelsByProject}
             onAddProject={handleAddProject}
             onUpdateProject={(p) => dispatch({ type: 'UPDATE_PROJECT', payload: p })}

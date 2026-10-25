@@ -10,6 +10,7 @@ import type { Category, Model, Project } from '@/types';
 import { getEventCoordinates } from '@dnd-kit/utilities';
 import { dndId, parseDndId, type DndKind } from './dnd-ids';
 import { resolveCategoryDrop, resolveProjectDrop, resolveUnitDrop } from './drop-target';
+import { findMoveClash } from './names';
 
 /**
  * The drag logic of the sidebar and the unit table that does not need React:
@@ -302,8 +303,8 @@ export function createAnnouncer() {
   const destination = (ctx: AnnouncementContext, item: NonNullable<ReturnType<typeof lookup>>) => {
     const { categories, projects, models = [], drop } = ctx;
     const move = resolveDrop(categories, projects, item, drop, models);
-    if (!drop) return { key: 'none', move: null, text: null };
-    if (!move) return { key: 'origin', move: null, text: null };
+    if (!drop) return { key: 'none', move: null, text: null, refusal: null };
+    if (!move) return { key: 'origin', move: null, text: null, refusal: null };
     if (move.kind === 'unit') {
       const target = projects.find(p => p.id === move.toProjectId);
       const count = models.filter(m => m.projectId === move.toProjectId && m.id !== item.id).length + 1;
@@ -311,17 +312,30 @@ export function createAnnouncer() {
         key: `unit:${move.toProjectId}:${move.toIndexInProject}`,
         move,
         text: `project "${target?.name ?? 'unknown'}", position ${move.toIndexInProject + 1} of ${count}`,
+        refusal: null,
       };
     }
     if (move.kind === 'cat') {
-      return { key: `cat:${move.toIndex}`, move, text: `position ${move.toIndex + 1} of ${categories.length}` };
+      return { key: `cat:${move.toIndex}`, move, text: `position ${move.toIndex + 1} of ${categories.length}`, refusal: null };
     }
     const target = categories.find(c => c.id === move.toCategoryId);
+    // A project may not join a category that already holds one of the same name. The drop
+    // is refused (PaintDndProvider), so say so while the keyboard rests there, and on drop.
+    const clash = findMoveClash(projects, item.id, move.toCategoryId);
+    if (clash) {
+      return {
+        key: `refused:${move.toCategoryId}`,
+        move: null,
+        text: null,
+        refusal: `category "${target?.name ?? 'unknown'}" already has a project named "${clash.name}"`,
+      };
+    }
     const count = projects.filter(p => p.categoryId === move.toCategoryId && p.id !== item.id).length + 1;
     return {
       key: `proj:${move.toCategoryId}:${move.toIndexInCategory}`,
       move,
       text: `category "${target?.name ?? 'unknown'}", position ${move.toIndexInCategory + 1} of ${count}`,
+      refusal: null,
     };
   };
 
@@ -333,6 +347,7 @@ export function createAnnouncer() {
     lastKey = dest.key;
     if (dest.key === 'none') return `${capital(item.label)} is not over a drop position.`;
     if (dest.key === 'origin') return `${capital(item.label)} is back at its original position.`;
+    if (dest.refusal) return `${capital(item.label)} cannot be dropped here: ${dest.refusal}.`;
     return `${capital(item.label)} will move to ${dest.text}.`;
   };
 
@@ -354,6 +369,7 @@ export function createAnnouncer() {
       const item = lookup(ctx, args.active.id);
       if (!item) return 'The item was dropped.';
       const dest = destination(ctx, item);
+      if (dest.refusal) return `${capital(item.label)} was not moved: ${dest.refusal}.`;
       if (!dest.move) return `${capital(item.label)} was dropped in its original position.`;
       return item.kind === 'cat' ? `Moved ${item.label}, ${dest.text}.` : `Moved ${item.label} to ${dest.text}.`;
     },

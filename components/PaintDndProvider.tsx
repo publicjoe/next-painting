@@ -38,6 +38,7 @@ import {
   type ResolvedDrop,
 } from '@/lib/sidebar-dnd';
 import { useHoverOpen } from '@/hooks/useHoverOpen';
+import { findMoveClash, moveClashMessage } from '@/lib/names';
 import { GripIcon } from './icons';
 
 /** The item being dragged, by kind and real (not namespaced) id. */
@@ -51,6 +52,8 @@ export type DragItem = { kind: DndKind; id: string };
 export interface SidebarHandle {
   isOpen: (categoryId: string) => boolean;
   open: (categoryId: string) => void;
+  /** Shows why a drop was refused, where the sidebar shows its other name errors. */
+  refuse: (message: string) => void;
 }
 
 interface DragDropValue {
@@ -227,6 +230,15 @@ export function PaintDndProvider({
     if (!item || wasCancelled) return;
     const move = resolveDrop(categories, projects, item, dropRef.current, models);
     if (move?.kind === 'proj') {
+      // A project may not join a category that already holds one of the same name. The
+      // announcer has already said so (lib/sidebar-dnd.ts); this adds the visible message.
+      const clash = findMoveClash(projects, item.id, move.toCategoryId);
+      if (clash) {
+        const project = projects.find(p => p.id === item.id);
+        const target = categories.find(c => c.id === move.toCategoryId);
+        if (project && target) sidebar.current?.refuse(moveClashMessage(project, target.name, clash));
+        return;
+      }
       // Open a closed target so the moved row is visible and focus can return to it
       sidebar.current?.open(move.toCategoryId);
       onMoveProject(item.id, move.toCategoryId, move.toIndexInCategory);

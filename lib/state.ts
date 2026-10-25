@@ -1,4 +1,5 @@
 import type { AppState, Category, Project, Model, StatusField } from '@/types';
+import { findCategoryClash, findCategoryRenameClash, findMoveClash, findProjectClash, findProjectRenameClash } from '@/lib/names';
 
 /** An item removed by a delete, with the array position it held. */
 export interface Removed<T> { item: T; index: number }
@@ -54,7 +55,8 @@ export function removedBy(state: AppState, kind: 'category' | 'project' | 'model
 }
 
 // Re-insert at original positions, ascending, so the original order comes
-// back. Items already present (same id) are skipped; `accept` drops orphans.
+// back. Items already present (same id) are skipped; `accept` drops orphans and
+// items that would recreate a name clash.
 function reinsert<T extends { id: string }>(list: T[], removed: Removed<T>[], accept: (item: T) => boolean): T[] {
   const next = [...list];
   const ids = new Set(list.map(i => i.id));
@@ -77,10 +79,19 @@ export function reducer(state: AppState, action: Action): AppState {
       return action.payload;
 
     // Categories
+    // The naming rules (lib/names.ts) are backstopped here: a clash returns the same
+    // state object, so a second tab or a future caller cannot create one. Only the
+    // item being changed is checked, so stored duplicates still load and other items
+    // in such data can be renamed.
     case 'ADD_CATEGORY':
+      if (findCategoryClash(state.categories, action.payload.name)) return state;
       return { ...state, categories: [...state.categories, action.payload] };
-    case 'UPDATE_CATEGORY':
+    case 'UPDATE_CATEGORY': {
+      const current = state.categories.find(c => c.id === action.payload.id);
+      // A change that leaves the compared name alone (including a case-only rename) is never a new clash
+      if (current && findCategoryRenameClash(state.categories, current, action.payload.name)) return state;
       return { ...state, categories: state.categories.map(c => c.id === action.payload.id ? action.payload : c) };
+    }
     case 'DELETE_CATEGORY':
       return {
         ...state,
@@ -105,9 +116,14 @@ export function reducer(state: AppState, action: Action): AppState {
 
     // Projects
     case 'ADD_PROJECT':
+      if (findProjectClash(state.projects, action.payload.categoryId, action.payload.name)) return state;
       return { ...state, projects: [...state.projects, action.payload] };
-    case 'UPDATE_PROJECT':
+    case 'UPDATE_PROJECT': {
+      const current = state.projects.find(p => p.id === action.payload.id);
+      // Checked only when the compared name or the category changes
+      if (current && findProjectRenameClash(state.projects, current, action.payload.name, action.payload.categoryId)) return state;
       return { ...state, projects: state.projects.map(p => p.id === action.payload.id ? action.payload : p) };
+    }
     case 'DELETE_PROJECT':
       return {
         ...state,
@@ -119,6 +135,8 @@ export function reducer(state: AppState, action: Action): AppState {
       const { id, toCategoryId, toIndexInCategory } = action.payload;
       const project = state.projects.find(p => p.id === id);
       if (!project || !state.categories.some(c => c.id === toCategoryId)) return state;
+      // A move into a category that already holds a project of that name is refused
+      if (findMoveClash(state.projects, id, toCategoryId)) return state;
       const rest = state.projects.filter(p => p.id !== id);
       // Flat positions of the target category's projects, in order
       const slots = rest.flatMap((p, i) => (p.categoryId === toCategoryId ? [i] : []));
@@ -168,10 +186,22 @@ export function reducer(state: AppState, action: Action): AppState {
       };
 
     case 'RESTORE_ITEMS': {
-      // Parents first; a child whose parent no longer exists is not restored
-      const categories = reinsert(state.categories, action.payload.categories, () => true);
+      // Parents first; a child whose parent no longer exists is not restored. An item
+      // whose name has been taken since the delete is not restored either (the app
+      // checks first with findRestoreClash and tells the user), and neither are its
+      // children, which are then orphans. Names are checked against the current data,
+      // as the items restored together already lived together.
+      const categories = reinsert(
+        state.categories,
+        action.payload.categories,
+        c => !findCategoryClash(state.categories, c.name),
+      );
       const categoryIds = new Set(categories.map(c => c.id));
-      const projects = reinsert(state.projects, action.payload.projects, p => categoryIds.has(p.categoryId));
+      const projects = reinsert(
+        state.projects,
+        action.payload.projects,
+        p => categoryIds.has(p.categoryId) && !findProjectClash(state.projects, p.categoryId, p.name),
+      );
       const projectIds = new Set(projects.map(p => p.id));
       const models = reinsert(state.models, action.payload.models, m => projectIds.has(m.projectId));
       return { categories, projects, models };
