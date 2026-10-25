@@ -1,3 +1,5 @@
+import { afterEach } from 'vitest';
+
 // jsdom does not implement HTMLDialogElement.showModal()/close(). Minimal
 // stand-ins so ConfirmDialog can be tested: they toggle `open` and fire
 // `close`. They do NOT model the top layer, inertness or focus trapping, which
@@ -11,4 +13,12 @@ if (typeof HTMLDialogElement !== 'undefined' && !HTMLDialogElement.prototype.sho
     this.removeAttribute('open');
     this.dispatchEvent(new Event('close'));
   };
+}
+
+// Testing Library only unmounts between tests on its own when Vitest globals are
+// on, which they are not here. Without this, mounted hooks and components keep
+// their window and document listeners alive into later tests.
+if (typeof document !== 'undefined') {
+  const { cleanup } = await import('@testing-library/react');
+  afterEach(cleanup);
 }

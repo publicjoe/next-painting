@@ -3,6 +3,9 @@ import type { AppState } from '@/types';
 /** Largest model count accepted by the UI and by validation of stored or imported data. */
 export const MAX_MODEL_COUNT = 199;
 
+/** Longest category, project or model name accepted. */
+export const MAX_NAME_LENGTH = 120;
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -28,11 +31,12 @@ export function isAppState(value: unknown): value is AppState {
   const { categories, projects, models } = value;
   if (!Array.isArray(categories) || !Array.isArray(projects) || !Array.isArray(models)) return false;
 
-  if (!categories.every(c => isRecord(c) && isStr(c.name))) return false;
-  if (!projects.every(p => isRecord(p) && isStr(p.name) && isStr(p.categoryId))) return false;
+  const validName = (v: unknown): v is string => isStr(v) && v.length <= MAX_NAME_LENGTH;
+  if (!categories.every(c => isRecord(c) && validName(c.name))) return false;
+  if (!projects.every(p => isRecord(p) && validName(p.name) && isStr(p.categoryId))) return false;
   if (!models.every(m =>
     isRecord(m) &&
-    isStr(m.name) &&
+    validName(m.name) &&
     isStr(m.projectId) &&
     typeof m.count === 'number' && Number.isInteger(m.count) && m.count >= 1 && m.count <= MAX_MODEL_COUNT &&
     typeof m.built === 'boolean' &&

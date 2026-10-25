@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { axe } from '@/lib/test-axe';
 import PaintLogApp from './PaintLogApp';
+import { REVOKE_DELAY_MS } from '@/lib/download';
 import { STORAGE_KEY } from '@/lib/migrate';
 import { seeded } from '@/lib/test-fixtures';
 
@@ -50,7 +51,7 @@ describe('PaintLogApp', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add Category' }));
     type('New category name', 'Necrons');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    expect(screen.getByRole('heading', { level: 1, name: 'Necrons' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'Necrons' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Necrons' })).toBeTruthy();
   });
 
@@ -138,6 +139,40 @@ describe('PaintLogApp', () => {
       expect(screen.queryByText(/not a valid PaintLog export/)).toBeNull();
     });
 
+    it('keeps a copy of the current data before an import replaces it', async () => {
+      await renderApp();
+      const before = localStorage.getItem(STORAGE_KEY)!;
+      importFile(JSON.stringify(imported));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(/copy of your current data is kept/)).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Replace data' }));
+      expect(localStorage.getItem(`${STORAGE_KEY}.bak`)).toBe(before);
+    });
+
+    it('refuses to import when a backup of the current data cannot be saved, and keeps the data', async () => {
+      await renderApp();
+      const before = localStorage.getItem(STORAGE_KEY);
+      importFile(JSON.stringify(imported));
+      const dialog = await screen.findByRole('dialog');
+      const real = Storage.prototype.setItem;
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, k: string, v: string) {
+        if (k.includes('.bak')) throw new Error('QuotaExceededError');
+        real.call(this, k, v);
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Replace data' }));
+      expect(screen.getByRole('alert').textContent).toContain('backup copy of your current data could not be saved');
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('button', { name: 'WH40k' })).toBeTruthy(); // data untouched
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
+    });
+
+    it('warns in the dialog when the file has values over the limits', async () => {
+      await renderApp();
+      importFile(JSON.stringify({ ...imported, models: [], categories: [{ id: 'x1', name: 'n'.repeat(500) }] }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(/over the limits and will be shortened/)).toBeTruthy();
+    });
+
     it('asks before replacing, and cancelling keeps the data', async () => {
       await renderApp();
       importFile(JSON.stringify(imported));
@@ -154,7 +189,7 @@ describe('PaintLogApp', () => {
       const dialog = await screen.findByRole('dialog');
       fireEvent.click(within(dialog).getByRole('button', { name: 'Replace data' }));
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getByRole('heading', { level: 1, name: 'Imported' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 2, name: 'Imported' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'WH40k' })).toBeNull();
     });
 
@@ -233,10 +268,10 @@ describe('PaintLogApp', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Delete category WH40k' }));
       const nav = screen.getByRole('navigation', { name: 'Categories' });
       expect(within(nav).queryByRole('button', { name: 'WH40k' })).toBeNull();
-      expect(screen.getByRole('heading', { level: 1, name: 'D&D' })).toBeTruthy(); // fell back to the next
+      expect(screen.getByRole('heading', { level: 2, name: 'D&D' })).toBeTruthy(); // fell back to the next
       fireEvent.click(undoButton());
       expect(within(nav).getAllByRole('button', { name: /^(WH40k|D&D)$/ }).map(b => b.textContent)).toEqual(['WH40k', 'D&D']);
-      expect(screen.getByRole('heading', { level: 1, name: 'WH40k' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 2, name: 'WH40k' })).toBeTruthy();
       expect(screen.getByLabelText('Project name: Marines')).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Delete model Captain' })).toBeTruthy();
     });
@@ -296,8 +331,8 @@ describe('PaintLogApp', () => {
     it('clicking a project selects its category and shows only that project', async () => {
       await renderApp();
       fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
-      expect(screen.getByRole('heading', { level: 1, name: 'D&D' })).toBeTruthy();
-      expect(screen.getByRole('heading', { level: 2, name: 'Party' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 2, name: 'D&D' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 3, name: 'Party' })).toBeTruthy();
       expect(screen.getByLabelText('Project name: Party')).toBeTruthy();
     });
 
@@ -525,7 +560,10 @@ describe('PaintLogApp', () => {
       let blob: Blob | undefined;
       const createObjectURL = vi.fn((b: Blob) => { blob = b; return 'blob:test-url'; });
       const revokeObjectURL = vi.fn();
-      vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
+      // jsdom has neither function; define them on URL and put it back afterwards
+      const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+      Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true, writable: true });
+      Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true, writable: true });
       let download = '';
       let href = '';
       vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
@@ -536,15 +574,17 @@ describe('PaintLogApp', () => {
         await renderApp();
         fireEvent.click(screen.getByRole('button', { name: 'Export' }));
         expect(createObjectURL).toHaveBeenCalledTimes(1);
+        expect(revokeObjectURL).not.toHaveBeenCalled(); // revoked after a delay, not straight after the click
+        await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-url'), { timeout: REVOKE_DELAY_MS + 1000 });
         expect(href).toBe('blob:test-url');
         expect(download).toMatch(/^paintlog-\d{4}-\d{2}-\d{2}\.json$/);
-        expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-url');
         expect(blob?.type).toBe('application/json');
         const text = await blob!.text();
         expect(JSON.parse(text)).toEqual(seeded);
         expect(text).toBe(JSON.stringify(seeded, null, 2));
       } finally {
-        vi.unstubAllGlobals();
+        Object.defineProperty(URL, 'createObjectURL', { value: original.create, configurable: true, writable: true });
+        Object.defineProperty(URL, 'revokeObjectURL', { value: original.revoke, configurable: true, writable: true });
       }
     });
   });
@@ -581,7 +621,7 @@ describe('PaintLogApp', () => {
       const dialog = await screen.findByRole('dialog', { name: 'Replace all data?' });
       fireEvent.click(within(dialog).getByRole('button', { name: 'Replace data' }));
       expect(screen.queryByRole('alert')).toBeNull();
-      expect(screen.getByRole('heading', { level: 1, name: 'Imported' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 2, name: 'Imported' })).toBeTruthy();
       await waitFor(() => {
         expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ version: 1, state: imported });
       });
@@ -601,7 +641,7 @@ describe('PaintLogApp', () => {
       fireEvent.change(screen.getByLabelText('Import data file'), { target: { files: [file] } });
       const dialog = await screen.findByRole('dialog', { name: 'Replace all data?' });
       fireEvent.click(within(dialog).getByRole('button', { name: 'Replace data' }));
-      expect(screen.getByRole('heading', { level: 1, name: 'Imported' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 2, name: 'Imported' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     });
   });
@@ -701,7 +741,7 @@ describe('PaintLogApp', () => {
       type('New model name', 'Librarian'); // pending: not yet past the debounce
       fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
       fireStorage(JSON.stringify(other));
-      expect(screen.getByRole('heading', { level: 1, name: 'Other tab' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 2, name: 'Other tab' })).toBeTruthy();
       const banner = screen.getByText(/unsaved edits in this tab were replaced/).closest('[role="status"]') as HTMLElement;
       expect(banner).toBeTruthy();
       fireEvent.click(within(banner).getByRole('button', { name: 'Dismiss' }));
@@ -711,7 +751,7 @@ describe('PaintLogApp', () => {
     it('shows no banner when nothing was waiting to be saved', async () => {
       await renderApp();
       fireStorage(JSON.stringify(other));
-      expect(screen.getByRole('heading', { level: 1, name: 'Other tab' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 2, name: 'Other tab' })).toBeTruthy();
       expect(screen.queryByText(/unsaved edits in this tab were replaced/)).toBeNull();
     });
 
@@ -722,6 +762,24 @@ describe('PaintLogApp', () => {
       fireStorage(JSON.stringify(other));
       const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } }); // see note above
       expect(results.violations).toEqual([]);
+    });
+  });
+
+  describe('values over the limits when loading', () => {
+    it('shows a dismissible notice naming the kept copy', async () => {
+      const raw = JSON.stringify({ version: 1, state: { ...seeded, models: seeded.models.map(m => ({ ...m, count: 5000 })) } });
+      localStorage.setItem(STORAGE_KEY, raw);
+      await renderApp();
+      const notice = screen.getByText(/were over the limits and were shortened/).closest('[role="status"]') as HTMLElement;
+      expect(notice.textContent).toContain(`${STORAGE_KEY}.bak`);
+      expect(localStorage.getItem(`${STORAGE_KEY}.bak`)).toBe(raw);
+      fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }));
+      expect(screen.queryByText(/were over the limits and were shortened/)).toBeNull();
+    });
+
+    it('shows no notice for data that fits', async () => {
+      await renderApp();
+      expect(screen.queryByText(/over the limits/)).toBeNull();
     });
   });
 });

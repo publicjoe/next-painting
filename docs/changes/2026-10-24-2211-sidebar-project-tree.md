@@ -2,6 +2,8 @@
 
 Date: 2026-10-24 22:11
 
+> Superseded in part: `2026-10-24-2251-one-project-at-a-time.md` removed the card collapse, scroll-to-card and focus code described below. This note is kept as a record of what was committed at the time.
+
 ## Summary
 
 The sidebar now lists each category's projects underneath it, with a chevron to show or hide them. Clicking a project selects its category and jumps to that project's card in the main area. The sidebar is also 50% wider on desktop.

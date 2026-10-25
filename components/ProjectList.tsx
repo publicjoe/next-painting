@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import type { Project, Model, Category, StatusField } from '@/types';
 import { ModelTable } from './ModelTable';
 import { InlineEditText } from './InlineEditText';
-import { TrashIcon } from './icons';
+import { EmptyBoxIcon, TrashIcon } from './icons';
 import { getProjectProgress } from '@/lib/progress';
 
 interface ProjectListProps {
@@ -48,7 +48,7 @@ export function ProjectList({
     <div className="flex-1 overflow-y-auto p-6 pt-3 md:p-10 md:pt-5 space-y-8 bg-zinc-900">
       <header className="flex flex-col md:flex-row md:items-center justify-between pb-3 border-b border-zinc-800 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-zinc-100">{category.name}</h1>
+          <h2 className="text-3xl font-bold text-zinc-100">{category.name}</h2>
           <p className="text-zinc-400 mt-0.625">Manage your projects and models for this category.</p>
         </div>
         
@@ -73,10 +73,8 @@ export function ProjectList({
 
       {!project ? (
         <div className="text-center py-20 bg-zinc-800/20 rounded-xl border border-zinc-800 border-dashed">
-          <svg className="mx-auto h-12 w-12 text-zinc-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-          <h2 className="text-lg font-medium text-zinc-300">No Projects Found</h2>
+          <EmptyBoxIcon className="mx-auto h-12 w-12 text-zinc-600 mb-4" />
+          <h3 className="text-lg font-medium text-zinc-300">No Projects Found</h3>
           <p className="text-zinc-400 mt-1">Create your first project above to get started.</p>
         </div>
       ) : (
@@ -84,9 +82,9 @@ export function ProjectList({
           aria-labelledby={`project-heading-${project.id}`}
           className="bg-zinc-800/40 border border-zinc-700/50 rounded-xl overflow-hidden shadow-lg"
         >
-          <h2 id={`project-heading-${project.id}`} className="sr-only">
+          <h3 id={`project-heading-${project.id}`} className="sr-only">
             {project.name}
-          </h2>
+          </h3>
           {/* Project Header */}
           <div className="px-5 py-2.5 flex flex-col md:flex-row md:items-center justify-between hover:bg-zinc-800/80 transition-colors gap-4">
             <InlineEditText

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { STORAGE_KEY } from '@/lib/migrate';
 import { keepBackup } from '@/lib/backup';
+import { downloadFile } from '@/lib/download';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 // Route-level error boundary. Most likely cause here is stored data that the
@@ -19,13 +20,7 @@ export default function Error({ retry }: { error: Error & { digest?: string }; r
       setExportMessage('There is no stored data to export.');
       return;
     }
-    const blob = new Blob([raw], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `paintlog-raw-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadFile(raw, `paintlog-raw-${new Date().toISOString().slice(0, 10)}.json`);
   };
 
   const resetAndRetry = () => {
@@ -47,13 +42,16 @@ export default function Error({ retry }: { error: Error & { digest?: string }; r
 
   return (
     <>
-    <div role="alert" className="flex h-dvh items-center justify-center bg-zinc-900 p-8 text-zinc-100">
+    <div className="flex h-dvh items-center justify-center bg-zinc-900 p-8 text-zinc-100">
       <div className="max-w-md text-center">
-        <h1 className="mb-2 text-2xl font-bold">Something went wrong</h1>
-        <p className="mb-6 text-zinc-400">
-          PaintLog hit an unexpected error. Your data has not been changed. You can try again, or
-          export the raw stored data before resetting.
-        </p>
+        {/* Only the explanation is announced; the buttons are not part of the alert */}
+        <div role="alert">
+          <h1 className="mb-2 text-2xl font-bold">Something went wrong</h1>
+          <p className="mb-6 text-zinc-400">
+            PaintLog hit an unexpected error. Your data has not been changed. You can try again, or
+            export the raw stored data before resetting.
+          </p>
+        </div>
         <div className="flex flex-wrap justify-center gap-3">
           <button type="button" onClick={() => retry()} className="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
             Try again

@@ -105,6 +105,26 @@ describe('usePaintingLog', () => {
     expect(result.current.backupFailed).toBe(true);
   });
 
+  it('lowers over-limit values on load, keeps the original, and says so', async () => {
+    const raw = JSON.stringify({ version: 1, state: { ...seeded, models: seeded.models.map(m => ({ ...m, count: 5000 })) } });
+    store.set(STORAGE_KEY, raw);
+    const { result } = renderHook(() => usePaintingLog());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.state.models.every(m => m.count === 199)).toBe(true);
+    expect(store.get(BACKUP_KEY)).toBe(raw);
+    expect(result.current.adjustedNotice).toContain(BACKUP_KEY);
+    act(() => result.current.dismissAdjustedNotice());
+    expect(result.current.adjustedNotice).toBeNull();
+  });
+
+  it('has no adjusted notice and makes no backup for data that fits', async () => {
+    store.set(STORAGE_KEY, JSON.stringify({ version: 1, state: seeded }));
+    const { result } = renderHook(() => usePaintingLog());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.adjustedNotice).toBeNull();
+    expect(store.has(BACKUP_KEY)).toBe(false);
+  });
+
   it('startFresh clears the error and resumes saving', async () => {
     store.set(STORAGE_KEY, '{bad');
     const { result } = renderHook(() => usePaintingLog());

@@ -24,6 +24,14 @@ describe('error boundary', () => {
     expect(alertSpy).not.toHaveBeenCalled();
   });
 
+  it('announces only the explanation, not the buttons', () => {
+    setup();
+    const alert = screen.getByRole('heading', { name: 'Something went wrong' }).closest('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert!.querySelector('button')).toBeNull();
+    for (const button of screen.getAllByRole('button')) expect(button.closest('[role="alert"]')).toBeNull();
+  });
+
   it('asks first, and cancelling leaves the data alone', () => {
     localStorage.setItem(STORAGE_KEY, 'raw');
     const retry = setup();
@@ -47,6 +55,23 @@ describe('error boundary', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(BACKUP_KEY)).toBe('raw');
     expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it('exports the raw stored data as a file', () => {
+    localStorage.setItem(STORAGE_KEY, '{"raw":true}');
+    let clickedName = '';
+    const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    Object.defineProperty(URL, 'createObjectURL', { value: () => 'blob:raw', configurable: true, writable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: () => {}, configurable: true, writable: true });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { clickedName = this.download; });
+    try {
+      setup();
+      fireEvent.click(screen.getByRole('button', { name: 'Export raw data' }));
+      expect(clickedName).toMatch(/^paintlog-raw-\d{4}-\d{2}-\d{2}\.json$/);
+    } finally {
+      Object.defineProperty(URL, 'createObjectURL', { value: original.create, configurable: true, writable: true });
+      Object.defineProperty(URL, 'revokeObjectURL', { value: original.revoke, configurable: true, writable: true });
+    }
   });
 
   const confirmReset = () => {

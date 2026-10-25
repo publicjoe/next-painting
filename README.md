@@ -62,6 +62,7 @@ State is stored under the `painting-log-state` key as a versioned envelope:
 }
 ```
 
+- Any change to the stored shape must bump `STORAGE_VERSION` in `lib/migrate.ts`. Loading drops unknown properties, so an older build that read newer data with the same version would lose the extra fields on its next save. A new version makes older builds refuse the data instead.
 - `lib/migrate.ts` reads the current envelope and the legacy unversioned shape
   (a bare `state` object), which is re-saved as v1. Unknown versions are
   rejected rather than guessed at.
@@ -69,6 +70,11 @@ State is stored under the `painting-log-state` key as a versioned envelope:
   orphaned projects or models) before data is accepted from storage, another tab
   or an imported file.
 - Unreadable stored data is copied to `painting-log-state.bak` (or `.bak.2` and so on, so an earlier copy is never overwritten) and the stored data is left alone until you confirm "Start fresh".
+- Limits: a model's count is 1 to 199 and a name is up to 120 characters. Data
+  saved before the limits existed is lowered or shortened on load or import, with
+  a notice, and a raw copy is kept first. Unknown properties are dropped.
+- Importing a file keeps a copy of your current data in browser storage first (when
+  storage allows), as `painting-log-state.bak` or `.bak.2` and so on.
 - Edits are saved after a 300 ms pause, and immediately on `pagehide` or unmount.
   If storage is full or blocked, a banner asks you to export your data.
 - Changes made in another tab are picked up through the `storage` event; invalid
