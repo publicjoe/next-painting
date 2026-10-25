@@ -19,3 +19,21 @@ export function EmptyBoxIcon({ className, strokeWidth = 1 }: IconProps & { strok
     </svg>
   );
 }
+
+/** Six-dot grip, the visual for a drag handle. */
+export function GripIcon({ className = 'w-4 h-4' }: IconProps) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+      {[5, 11].flatMap(x => [3, 8, 13].map(y => <circle key={`${x}-${y}`} cx={x} cy={y} r={1.25} />))}
+    </svg>
+  );
+}
+
+/** Three vertical dots, the visual for a row's Move menu button. */
+export function MoreIcon({ className = 'w-4 h-4' }: IconProps) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+      {[3, 8, 13].map(y => <circle key={y} cx={8} cy={y} r={1.25} />)}
+    </svg>
+  );
+}

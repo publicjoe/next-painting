@@ -39,7 +39,7 @@ CI also runs `npx next typegen && npx tsc --noEmit` before the tests.
 | `hooks/` | `usePaintingLog.ts`: reducer plus persistence (debounced saves, multi-tab sync) |
 | `lib/` | Pure logic: `state.ts` (reducer), `validate.ts` (`isAppState`), `migrate.ts` (storage versions), `progress.ts` (a model is "completed" once built, primed, painted and based are all ticked), `backup.ts` (never-overwrite backups), `id.ts` |
 | `types/` | Shared TypeScript types |
-| `e2e/` | Playwright smoke tests |
+| `e2e/` | Playwright browser tests: smoke checks and sidebar drag-and-drop |
 | `docs/` | [nextjs-notes.md](docs/nextjs-notes.md): server vs client components, hydration, routing |
 
 Unit and component tests sit beside the code they cover (`*.test.ts`, `*.test.tsx`).
@@ -62,6 +62,7 @@ State is stored under the `painting-log-state` key as a versioned envelope:
 }
 ```
 
+- Reordering: drag a category or project by its grip handle, or use the Move button on its row (Move up, Move down, Move to another category). There is no order field: the order of `categories` and `projects` in storage is the display order, and the exported `state` keeps that array order.
 - Any change to the stored shape must bump `STORAGE_VERSION` in `lib/migrate.ts`. Loading drops unknown properties, so an older build that read newer data with the same version would lose the extra fields on its next save. A new version makes older builds refuse the data instead.
 - `lib/migrate.ts` reads the current envelope and the legacy unversioned shape
   (a bare `state` object), which is re-saved as v1. Unknown versions are

@@ -17,3 +17,11 @@ Always run a QA review of the changes before staging them, even if the user only
 - Dispatch the `qa-reviewer` agent (fresh context, never the agent that wrote the code) on the uncommitted changes, with an explicit `model`.
 - Fix or report its findings first. Stage only once the user has seen the result, and record the review in the change note.
 - Skip the review only if the user explicitly says to.
+
+## About the project and the owner
+
+PaintLog is a client-side tabletop miniature painting tracker built with Next.js (App Router). The owner is new to Next.js and is learning from this project, so explain framework concepts briefly when a change touches them.
+
+- **Workflow:** one branch per change, then a pull request to `main` using the `gh` CLI. Claude does not push or open a PR until asked, and does not commit.
+- **`main` is protected:** it needs the five CI checks to pass (Dependency audit, Lint and types, Unit tests (Vitest), Production build, Browser tests (Playwright)). Dependabot is switched off.
+- **QA record:** `docs/qa/2026-10-24-2329-qa-review.md` holds the open items, accepted trade-offs and unverified areas. Read it before changing behaviour it mentions, and update it when a finding is added or fixed.

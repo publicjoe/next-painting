@@ -22,6 +22,9 @@ export type Action =
   | { type: 'UPDATE_MODEL'; payload: Model }
   | { type: 'DELETE_MODEL'; payload: string } // modelId
   | { type: 'TOGGLE_MODEL_STATUS'; payload: { id: string; field: StatusField } }
+  // Positions are counted after the moved item has been removed from its list
+  | { type: 'MOVE_CATEGORY'; payload: { id: string; toIndex: number } }
+  | { type: 'MOVE_PROJECT'; payload: { id: string; toCategoryId: string; toIndexInCategory: number } }
   | { type: 'RESTORE_ITEMS'; payload: RemovedItems }; // undo of a delete
 
 export const initialState: AppState = {
@@ -62,6 +65,11 @@ function reinsert<T extends { id: string }>(list: T[], removed: Removed<T>[], ac
   return next;
 }
 
+// A raw index is never passed to splice: non-integers (including NaN) mean
+// "the end", and everything else is clamped into 0..length.
+const clampIndex = (index: number, length: number): number =>
+  Number.isInteger(index) ? Math.min(Math.max(index, 0), length) : length;
+
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'REPLACE_STATE':
@@ -84,6 +92,16 @@ export function reducer(state: AppState, action: Action): AppState {
         })
       };
 
+    case 'MOVE_CATEGORY': {
+      const from = state.categories.findIndex(c => c.id === action.payload.id);
+      if (from === -1) return state;
+      const moved = state.categories[from];
+      const rest = state.categories.filter((_, i) => i !== from);
+      const to = clampIndex(action.payload.toIndex, rest.length);
+      if (to === from) return state;
+      return { ...state, categories: [...rest.slice(0, to), moved, ...rest.slice(to)] };
+    }
+
     // Projects
     case 'ADD_PROJECT':
       return { ...state, projects: [...state.projects, action.payload] };
@@ -95,6 +113,26 @@ export function reducer(state: AppState, action: Action): AppState {
         projects: state.projects.filter(p => p.id !== action.payload),
         models: state.models.filter(m => m.projectId !== action.payload),
       };
+
+    case 'MOVE_PROJECT': {
+      const { id, toCategoryId, toIndexInCategory } = action.payload;
+      const project = state.projects.find(p => p.id === id);
+      if (!project || !state.categories.some(c => c.id === toCategoryId)) return state;
+      const rest = state.projects.filter(p => p.id !== id);
+      // Flat positions of the target category's projects, in order
+      const slots = rest.flatMap((p, i) => (p.categoryId === toCategoryId ? [i] : []));
+      const at = clampIndex(toIndexInCategory, slots.length);
+      // Same category and same place among its projects: nothing to do
+      if (project.categoryId === toCategoryId) {
+        const current = state.projects.filter(p => p.categoryId === toCategoryId).findIndex(p => p.id === id);
+        if (current === at) return state;
+      }
+      const moved = project.categoryId === toCategoryId ? project : { ...project, categoryId: toCategoryId };
+      // Before the project now at that position; after the last one at the end;
+      // at the end of the array when the category is empty
+      const flat = at < slots.length ? slots[at] : slots.length > 0 ? slots[slots.length - 1] + 1 : rest.length;
+      return { ...state, projects: [...rest.slice(0, flat), moved, ...rest.slice(flat)] };
+    }
 
     // Models
     case 'ADD_MODEL':

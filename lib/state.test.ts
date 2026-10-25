@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { initialState, reducer, removedBy } from '@/lib/state';
 import type { Action } from '@/lib/state';
 import { seeded } from '@/lib/test-fixtures';
+import { migrateWithReport } from '@/lib/migrate';
+import { isAppState } from '@/lib/validate';
 import type { AppState } from '@/types';
 
 describe('reducer', () => {
@@ -56,6 +58,123 @@ describe('reducer', () => {
 
   it('returns the same state for an unknown action', () => {
     expect(reducer(seeded, { type: 'NOPE' } as unknown as Action)).toBe(seeded);
+  });
+
+  describe('MOVE_CATEGORY and MOVE_PROJECT', () => {
+    // Projects interleaved across categories, so the flat-array mapping matters
+    const state: AppState = {
+      categories: [{ id: 'A', name: 'A' }, { id: 'B', name: 'B' }, { id: 'C', name: 'C' }, { id: 'E', name: 'Empty' }],
+      projects: [
+        { id: 'p1', categoryId: 'A', name: 'P1' },
+        { id: 'p2', categoryId: 'B', name: 'P2' },
+        { id: 'p3', categoryId: 'A', name: 'P3' },
+        { id: 'p4', categoryId: 'C', name: 'P4' },
+        { id: 'p5', categoryId: 'A', name: 'P5' },
+        { id: 'p6', categoryId: 'B', name: 'P6' },
+      ],
+      models: [
+        { id: 'm1', projectId: 'p1', name: 'M1', count: 1, built: false, primed: false, painted: false, based: false },
+        { id: 'm2', projectId: 'p4', name: 'M2', count: 2, built: true, primed: false, painted: false, based: false },
+      ],
+    };
+    const abc: AppState = { categories: state.categories.slice(0, 3), projects: [], models: [] };
+    const moveCategory = (s: AppState, id: string, toIndex: number) =>
+      reducer(s, { type: 'MOVE_CATEGORY', payload: { id, toIndex } });
+    const moveProject = (s: AppState, id: string, toCategoryId: string, toIndexInCategory: number) =>
+      reducer(s, { type: 'MOVE_PROJECT', payload: { id, toCategoryId, toIndexInCategory } });
+    const cats = (s: AppState) => s.categories.map(c => c.id);
+    const projs = (s: AppState) => s.projects.map(p => `${p.id}@${p.categoryId}`);
+
+    it('moves a category, counting the index after removal', () => {
+      expect(cats(moveCategory(abc, 'A', 2))).toEqual(['B', 'C', 'A']);
+      expect(cats(moveCategory(abc, 'C', 0))).toEqual(['C', 'A', 'B']);
+    });
+
+    it('reorders a project within its category, leaving other categories in place', () => {
+      // A's projects are p1, p3, p5 at flat positions 0, 2, 4
+      expect(projs(moveProject(state, 'p1', 'A', 2))).toEqual(['p2@B', 'p3@A', 'p4@C', 'p5@A', 'p1@A', 'p6@B']);
+      expect(projs(moveProject(state, 'p5', 'A', 0))).toEqual(['p5@A', 'p1@A', 'p2@B', 'p3@A', 'p4@C', 'p6@B']);
+    });
+
+    it('moves a project to another category, before the project at that position', () => {
+      expect(projs(moveProject(state, 'p3', 'B', 1))).toEqual(['p1@A', 'p2@B', 'p4@C', 'p5@A', 'p3@B', 'p6@B']);
+      expect(projs(moveProject(state, 'p3', 'B', 0))).toEqual(['p1@A', 'p3@B', 'p2@B', 'p4@C', 'p5@A', 'p6@B']);
+    });
+
+    it('moves a project after the last project of the target when the index equals its length', () => {
+      expect(projs(moveProject(state, 'p3', 'B', 2))).toEqual(['p1@A', 'p2@B', 'p4@C', 'p5@A', 'p6@B', 'p3@B']);
+    });
+
+    it('appends to the end of the array when the target category is empty', () => {
+      expect(projs(moveProject(state, 'p3', 'E', 0))).toEqual(['p1@A', 'p2@B', 'p4@C', 'p5@A', 'p6@B', 'p3@E']);
+    });
+
+    it('returns the identical state for an unknown id or unknown target category', () => {
+      expect(moveCategory(state, 'nope', 0)).toBe(state);
+      expect(moveProject(state, 'nope', 'A', 0)).toBe(state);
+      expect(moveProject(state, 'p1', 'nope', 0)).toBe(state);
+    });
+
+    it('clamps NaN, negative, fractional and over-length indexes into range', () => {
+      const toEnd = ['p2@B', 'p3@A', 'p4@C', 'p5@A', 'p1@A', 'p6@B'];
+      expect(projs(moveProject(state, 'p1', 'A', NaN))).toEqual(toEnd);
+      expect(projs(moveProject(state, 'p1', 'A', 1.5))).toEqual(toEnd);
+      expect(projs(moveProject(state, 'p1', 'A', 99))).toEqual(toEnd);
+      expect(projs(moveProject(state, 'p5', 'A', -3))).toEqual(['p5@A', 'p1@A', 'p2@B', 'p3@A', 'p4@C', 'p6@B']);
+      expect(cats(moveCategory(abc, 'A', NaN))).toEqual(['B', 'C', 'A']);
+      expect(cats(moveCategory(abc, 'A', 99))).toEqual(['B', 'C', 'A']);
+      expect(cats(moveCategory(abc, 'C', -1))).toEqual(['C', 'A', 'B']);
+      expect(cats(moveCategory(abc, 'B', 0.5))).toEqual(['A', 'C', 'B']);
+    });
+
+    it('returns the identical state for a move to the same place', () => {
+      expect(moveCategory(abc, 'B', 1)).toBe(abc);
+      expect(moveCategory(abc, 'A', -1)).toBe(abc);
+      expect(moveProject(state, 'p3', 'A', 1)).toBe(state);
+      expect(moveProject(state, 'p6', 'B', 99)).toBe(state);
+    });
+
+    it("moves items whose ids contain a colon or are '__proto__'", () => {
+      const odd: AppState = {
+        categories: [{ id: 'a:b', name: 'X' }, { id: '__proto__', name: 'Y' }],
+        projects: [{ id: '__proto__', categoryId: 'a:b', name: 'P' }, { id: 'a:b', categoryId: 'a:b', name: 'Q' }],
+        models: [],
+      };
+      expect(cats(moveCategory(odd, 'a:b', 1))).toEqual(['__proto__', 'a:b']);
+      expect(cats(moveCategory(odd, '__proto__', 0))).toEqual(['__proto__', 'a:b']);
+      // '__proto__' category is empty, so the project lands at the end of the array
+      expect(projs(moveProject(odd, '__proto__', '__proto__', 0))).toEqual(['a:b@a:b', '__proto__@__proto__']);
+      expect(projs(moveProject(odd, 'a:b', 'a:b', 0))).toEqual(['a:b@a:b', '__proto__@a:b']);
+    });
+
+    it('keeps the state valid and models untouched for every valid move', () => {
+      expect(isAppState(state)).toBe(true);
+      const indexes = [-1, 0, 0.5, 1, 2, 3, 4, NaN, 99];
+      for (const c of state.categories) {
+        for (const i of indexes) {
+          const next = moveCategory(state, c.id, i);
+          expect(isAppState(next)).toBe(true);
+          expect(next.models).toBe(state.models);
+          expect(next.categories).toHaveLength(state.categories.length);
+        }
+        for (const p of state.projects) {
+          for (const i of indexes) {
+            const next = moveProject(state, p.id, c.id, i);
+            expect(isAppState(next)).toBe(true);
+            expect(next.models).toBe(state.models);
+            expect(next.projects).toHaveLength(state.projects.length);
+            expect(next.projects.find(x => x.id === p.id)?.categoryId).toBe(c.id);
+          }
+        }
+      }
+    });
+
+    it('keeps the new order through export and import', () => {
+      const moved = moveProject(moveCategory(state, 'A', 3), 'p3', 'B', 1);
+      const imported = migrateWithReport(JSON.parse(JSON.stringify(moved)));
+      expect(imported?.state.categories.map(c => c.id)).toEqual(['B', 'C', 'E', 'A']);
+      expect(imported?.state.projects.map(p => `${p.id}@${p.categoryId}`)).toEqual(projs(moved));
+    });
   });
 
   describe('undo (removedBy + RESTORE_ITEMS)', () => {
