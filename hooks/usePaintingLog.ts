@@ -160,6 +160,7 @@ export function usePaintingLog() {
     setLoadError(null);
     setBackupKey(null);
     setBackupFailed(false);
+    setExternalReplaced(false);
   }, []);
 
   return { state, dispatch, isLoaded, loadError, backupKey, backupFailed, saveError, externalReplaced, dismissExternalNotice, startFresh };

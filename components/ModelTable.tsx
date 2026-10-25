@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { Model, StatusField } from '@/types';
 import { InlineEditText } from './InlineEditText';
 import { TrashIcon } from './icons';
@@ -56,21 +56,59 @@ function StatusCheckbox({ model, field, label, onToggle }: StatusCheckboxProps) 
   );
 }
 
+/** Pause after the last change before a draft is saved, so spinner and arrow-key edits are not lost. */
+export const COUNT_COMMIT_MS = 600;
+
 // Keeps what the user types as a draft, so the field can be cleared and retyped,
-// and commits a whole number between 1 and MAX_MODEL_COUNT on blur or Enter.
-// Anything else (empty, "1e3", "-2") reverts to the stored count.
+// and commits a whole number between 1 and MAX_MODEL_COUNT on blur, Enter or after
+// a short pause (spinner and arrow keys change the value without a blur). Anything
+// else (empty, "1e3", "-2") reverts to the stored count.
 function CountInput({ model, onCommit }: { model: Model; onCommit: (count: number) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
+  // The last count this field saved, to tell its own save from an outside change
+  const [saved, setSaved] = useState(model.count);
+  const [seenCount, setSeenCount] = useState(model.count);
+  // The count when the current edit began, so Escape can undo a pause-commit
+  const [origin, setOrigin] = useState<number | null>(null);
+
+  // An outside change (another tab, an import) replaces a stale draft
+  if (seenCount !== model.count) {
+    setSeenCount(model.count);
+    if (model.count !== saved) setDraft(null);
+    setSaved(model.count);
+  }
+
+  const parse = (text: string) => {
+    const t = text.trim();
+    return /^\d+$/.test(t) ? Math.min(MAX_MODEL_COUNT, Math.max(1, Number.parseInt(t, 10))) : null;
+  };
+
+  const save = (n: number) => {
+    setSaved(n);
+    if (n !== model.count) onCommit(n);
+  };
 
   const commit = () => {
     if (draft === null) return;
-    const text = draft.trim();
-    if (/^\d+$/.test(text)) {
-      const n = Math.min(MAX_MODEL_COUNT, Math.max(1, Number.parseInt(text, 10)));
-      if (n !== model.count) onCommit(n);
-    }
+    const n = parse(draft);
+    if (n !== null) save(n);
     setDraft(null);
+    setOrigin(null);
   };
+
+  // Save a settled draft without ending the edit, so typing carries on undisturbed
+  useEffect(() => {
+    if (draft === null) return;
+    const n = parse(draft);
+    if (n === null) return;
+    const timer = setTimeout(() => {
+      save(n);
+      // A capped or raised value (500 saved as the maximum) replaces what is shown
+      if (String(n) !== draft.trim()) setDraft(String(n));
+    }, COUNT_COMMIT_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
 
   return (
     <input
@@ -80,11 +118,19 @@ function CountInput({ model, onCommit }: { model: Model; onCommit: (count: numbe
       aria-label={`Count for ${model.name}`}
       className="bg-zinc-900 border border-zinc-600 rounded px-2 py-0.5 w-16 text-center text-zinc-100 focus:border-blue-500"
       value={draft ?? String(model.count)}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        if (draft === null) setOrigin(model.count);
+        setDraft(e.target.value);
+      }}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') commit();
-        if (e.key === 'Escape') setDraft(null);
+        if (e.key === 'Escape') {
+          // Undo an edit that a pause already saved, then leave the field as it was
+          if (origin !== null && origin !== model.count) save(origin);
+          setDraft(null);
+          setOrigin(null);
+        }
       }}
     />
   );

@@ -35,3 +35,10 @@ jobs:
       # Browser smoke tests (real focus handling and colour contrast), against a production build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      # Traces from a failed run, so a CI-only failure can be diagnosed
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

@@ -50,6 +50,8 @@ export function Sidebar({
   const addButton = useRef<HTMLButtonElement>(null);
   const categoryButtons = useRef(new Map<string, HTMLButtonElement>());
   const focusTarget = useRef<FocusTarget | null>(null);
+  const refusedRename = useRef(false);
+  const renameInput = useRef<HTMLInputElement>(null);
 
   // Adding or renaming unmounts the control that held focus, which drops it to
   // <body>. Hand it to the logical successor, but only when focus really was
@@ -94,6 +96,7 @@ export function Sidebar({
 
   const selectCategory = (id: string) => {
     setCollapsed(prev => ({ ...prev, [id]: false })); // a newly selected category opens
+    setNameError(null);
     onSelectCategory(id);
   };
 
@@ -150,18 +153,28 @@ export function Sidebar({
                   {editingId === cat.id ? (
                     <InlineEditText
                       autoFocus
+                      inputRef={renameInput}
                       ariaLabel={`Category name: ${cat.name}`}
                       className="flex-1 min-w-0 m-1 bg-zinc-900 border border-zinc-700 text-zinc-100 text-sm rounded p-1 focus:border-blue-500"
                       value={cat.name}
                       onCommit={(name) => {
                         if (isNameTaken(name, cat.id)) {
-                          setNameError(`A category named "${name.trim()}" already exists, so "${cat.name}" was not renamed.`);
+                          // Stay in edit mode so the typed name can be corrected
+                          refusedRename.current = true;
+                          // The blur that triggered this commit has just removed focus; put it back
+                          setTimeout(() => renameInput.current?.focus(), 0);
+                          setNameError(`A category named "${name.trim()}" already exists, so "${cat.name}" was not renamed. Edit the name or press Escape.`);
                           return;
                         }
                         setNameError(null);
                         onRenameCategory(cat.id, name);
                       }}
                       onFinish={() => {
+                        if (refusedRename.current) {
+                          refusedRename.current = false;
+                          return;
+                        }
+                        setNameError(null);
                         focusTarget.current = { kind: 'category', id: cat.id };
                         setEditingId(null);
                       }}
@@ -182,7 +195,7 @@ export function Sidebar({
                   )}
                   <button
                     type="button"
-                    onClick={() => setEditingId(cat.id)}
+                    onClick={() => { setNameError(null); setEditingId(cat.id); }}
                     className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 p-1 hover:text-blue-300 transition-opacity"
                     title="Rename Category"
                     aria-label={`Rename category ${cat.name}`}
@@ -193,7 +206,7 @@ export function Sidebar({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onDeleteCategory(cat.id)}
+                    onClick={() => { setNameError(null); onDeleteCategory(cat.id); }}
                     className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 p-1 mr-1 hover:text-red-400 transition-opacity"
                     title="Delete Category"
                     aria-label={`Delete category ${cat.name}`}

@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act } from '@testing-library/react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { axe } from '@/lib/test-axe';
-import { ModelTable } from './ModelTable';
+import { COUNT_COMMIT_MS, ModelTable } from './ModelTable';
 import { MAX_MODEL_COUNT } from '@/lib/validate';
 import type { Model } from '@/types';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const model = (over: Partial<Model> = {}): Model => ({
   id: 'm1', projectId: 'p1', name: 'Captain', count: 3,
@@ -115,5 +116,76 @@ describe('ModelTable count input', () => {
     expect(onUpdateModel).toHaveBeenLastCalledWith(expect.objectContaining({ count: 1 }));
     typeAndBlur('999999');
     expect(onUpdateModel).toHaveBeenLastCalledWith(expect.objectContaining({ count: MAX_MODEL_COUNT }));
+  });
+
+  it('saves a settled draft after a pause, without waiting for blur (spinner and arrow keys)', () => {
+    vi.useFakeTimers();
+    const { onUpdateModel } = setup([model()]);
+    fireEvent.change(input(), { target: { value: '4' } });
+    act(() => { vi.advanceTimersByTime(COUNT_COMMIT_MS - 1); });
+    expect(onUpdateModel).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(onUpdateModel).toHaveBeenCalledWith(expect.objectContaining({ count: 4 }));
+    expect(input().value).toBe('4'); // still editing: the draft is not reset mid-typing
+  });
+
+  it('does not save an invalid draft after a pause', () => {
+    vi.useFakeTimers();
+    const { onUpdateModel } = setup([model()]);
+    fireEvent.change(input(), { target: { value: '' } });
+    act(() => { vi.advanceTimersByTime(COUNT_COMMIT_MS * 2); });
+    expect(onUpdateModel).not.toHaveBeenCalled();
+  });
+
+  it('drops a stale draft when the count changes from outside', () => {
+    const onUpdateModel = vi.fn();
+    const props = { projectId: 'p1', onAddModel: vi.fn(), onUpdateModel, onDeleteModel: vi.fn(), onToggleStatus: vi.fn() };
+    const { rerender } = render(<ModelTable {...props} models={[model()]} />);
+    fireEvent.change(input(), { target: { value: '7' } });
+    rerender(<ModelTable {...props} models={[model({ count: 20 })]} />); // another tab saved 20
+    expect(input().value).toBe('20');
+    fireEvent.blur(input());
+    expect(onUpdateModel).not.toHaveBeenCalled();
+  });
+
+  it('shows the capped value after a pause-commit, and saves once when blurred afterwards', () => {
+    vi.useFakeTimers();
+    const onUpdateModel = vi.fn();
+    const props = { projectId: 'p1', onAddModel: vi.fn(), onUpdateModel, onDeleteModel: vi.fn(), onToggleStatus: vi.fn() };
+    const { rerender } = render(<ModelTable {...props} models={[model()]} />);
+    fireEvent.change(input(), { target: { value: '500' } });
+    act(() => { vi.advanceTimersByTime(COUNT_COMMIT_MS); });
+    expect(onUpdateModel).toHaveBeenCalledTimes(1);
+    expect(onUpdateModel).toHaveBeenCalledWith(expect.objectContaining({ count: MAX_MODEL_COUNT }));
+    expect(input().value).toBe(String(MAX_MODEL_COUNT));
+    rerender(<ModelTable {...props} models={[model({ count: MAX_MODEL_COUNT })]} />); // the save lands
+    fireEvent.blur(input());
+    expect(onUpdateModel).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape undoes an edit that a pause already saved', () => {
+    vi.useFakeTimers();
+    const onUpdateModel = vi.fn();
+    const props = { projectId: 'p1', onAddModel: vi.fn(), onUpdateModel, onDeleteModel: vi.fn(), onToggleStatus: vi.fn() };
+    const { rerender } = render(<ModelTable {...props} models={[model()]} />);
+    fireEvent.change(input(), { target: { value: '5' } });
+    act(() => { vi.advanceTimersByTime(COUNT_COMMIT_MS); });
+    rerender(<ModelTable {...props} models={[model({ count: 5 })]} />); // the save lands
+    fireEvent.keyDown(input(), { key: 'Escape' });
+    expect(onUpdateModel).toHaveBeenLastCalledWith(expect.objectContaining({ count: 3 }));
+  });
+
+  it('drops a draft when another tab sets the count back to what this field last saved', () => {
+    const onUpdateModel = vi.fn();
+    const props = { projectId: 'p1', onAddModel: vi.fn(), onUpdateModel, onDeleteModel: vi.fn(), onToggleStatus: vi.fn() };
+    const { rerender } = render(<ModelTable {...props} models={[model({ count: 1 })]} />);
+    fireEvent.change(input(), { target: { value: '1' } });
+    fireEvent.blur(input()); // saved stays 1
+    rerender(<ModelTable {...props} models={[model({ count: 7 })]} />); // another tab: 7
+    fireEvent.change(input(), { target: { value: '9' } });
+    rerender(<ModelTable {...props} models={[model({ count: 1 })]} />); // another tab: back to 1
+    expect(input().value).toBe('1');
+    fireEvent.blur(input());
+    expect(onUpdateModel).not.toHaveBeenCalled();
   });
 });

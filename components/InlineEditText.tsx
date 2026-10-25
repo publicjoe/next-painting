@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type Ref } from 'react';
 
 interface InlineEditTextProps {
   value: string;
@@ -6,6 +6,8 @@ interface InlineEditTextProps {
   ariaLabel: string;
   className?: string;
   autoFocus?: boolean;
+  /** Lets the owner move focus back into the field, e.g. after refusing a commit. */
+  inputRef?: Ref<HTMLInputElement>;
   /** Called after a commit or cancel, e.g. to leave an "editing" mode. */
   onFinish?: () => void;
 }
@@ -18,6 +20,7 @@ export function InlineEditText({
   ariaLabel,
   className,
   autoFocus,
+  inputRef,
   onFinish,
 }: InlineEditTextProps) {
   const [draft, setDraft] = useState(value);
@@ -45,6 +48,7 @@ export function InlineEditText({
   return (
     <input
       type="text"
+      ref={inputRef}
       autoFocus={autoFocus}
       aria-label={ariaLabel}
       className={className}
