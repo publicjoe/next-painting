@@ -48,6 +48,8 @@ export default function PaintLogApp() {
   // Only then does a delete pull focus to Undo; mouse users keep their pointer.
   const keyboardClickRef = useRef(false);
   const [undos, setUndos] = useState<PendingUndo[]>([]);
+  // Category the sidebar should open after a move; the sidebar clears it with onExpanded
+  const [expandCategoryId, setExpandCategoryId] = useState<string | null>(null);
 
   // Fall back to the first category when nothing (or a deleted category) is selected
   const selectedCategory =
@@ -81,6 +83,25 @@ export default function PaintLogApp() {
   const handleSelectCategory = (id: string) => {
     setSelectedCategoryId(id);
     setSelectedProjectId(null);
+  };
+
+  // A move must not change what is shown. The shown project can be the implicit
+  // first of its category, which would jump away once it leaves, so pin it first.
+  // Do not reuse handleSelectCategory: it clears the selected project.
+  const handleMoveProject = (id: string, toCategoryId: string, toIndexInCategory: number) => {
+    setSelectedProjectId(selectedProject?.id ?? null);
+    if (selectedProject?.id === id) {
+      setSelectedCategoryId(toCategoryId); // the heading follows the project
+      setExpandCategoryId(toCategoryId);
+    }
+    dispatch({ type: 'MOVE_PROJECT', payload: { id, toCategoryId, toIndexInCategory } });
+  };
+
+  // The shown category can be the implicit first one, which a reorder would change
+  const handleMoveCategory = (id: string, toIndex: number) => {
+    setSelectedCategoryId(selectedCategory?.id ?? null);
+    setSelectedProjectId(selectedProject?.id ?? null);
+    dispatch({ type: 'MOVE_CATEGORY', payload: { id, toIndex } });
   };
 
   const handleAddCategory = (name: string) => {
@@ -234,6 +255,10 @@ export default function PaintLogApp() {
         onAddCategory={handleAddCategory}
         onRenameCategory={(id, name) => dispatch({ type: 'UPDATE_CATEGORY', payload: { id, name } })}
         onDeleteCategory={handleDeleteCategory}
+        onMoveProject={handleMoveProject}
+        onMoveCategory={handleMoveCategory}
+        expandCategoryId={expandCategoryId}
+        onExpanded={() => setExpandCategoryId(null)}
         onExport={handleExport}
         onImport={handleImport}
       />

@@ -223,7 +223,7 @@ describe('PaintLogApp', () => {
       await renderApp();
       fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }));
       expect(screen.queryByRole('button', { name: 'Delete model Captain' })).toBeNull();
-      expect(screen.getByRole('status').textContent).toContain('Deleted model "Captain".');
+      expect(screen.getByText('Deleted model "Captain".').closest('[role="status"]')).toBeTruthy();
       fireEvent.click(undoButton());
       expect(screen.getByRole('button', { name: 'Delete model Captain' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
@@ -284,7 +284,8 @@ describe('PaintLogApp', () => {
         fireEvent.click(screen.getByRole('button', { name: `Delete model ${n}` }));
       }
       expect(screen.getAllByRole('button', { name: 'Undo' })).toHaveLength(3);
-      expect(screen.getByRole('status').textContent).not.toContain('"A"');
+      expect(screen.getByText('Deleted model "D".')).toBeTruthy();
+      expect(screen.queryByText('Deleted model "A".')).toBeNull();
     });
 
     it('has no axe violations with a toast showing', async () => {
@@ -451,6 +452,62 @@ describe('PaintLogApp', () => {
       fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
       const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } }); // see note above
       expect(results.violations).toEqual([]);
+    });
+  });
+
+  describe('moving does not change what is shown', () => {
+    const choose = (menu: string, option: string) => {
+      fireEvent.click(screen.getByRole('button', { name: menu }));
+      fireEvent.click(screen.getByRole('menuitem', { name: option }));
+    };
+    const shown = (category: string, project: string) => {
+      expect(screen.getByRole('heading', { level: 2, name: category })).toBeTruthy();
+      expect(screen.getByLabelText(`Project name: ${project}`)).toBeTruthy();
+      expect(screen.getAllByRole('table')).toHaveLength(1);
+    };
+
+    it('keeps the explicitly viewed project shown when it moves, and the heading follows it', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
+      choose('Move project Party', 'Move to WH40k');
+      shown('WH40k', 'Party');
+      expect(screen.queryByLabelText('Project name: Marines')).toBeNull();
+    });
+
+    it('opens the new category in the sidebar when the viewed project moves into a collapsed one', async () => {
+      await renderApp();
+      fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse projects in WH40k' }));
+      expect(screen.queryByRole('list', { name: 'Projects in WH40k' })).toBeNull();
+      choose('Move project Party', 'Move to WH40k');
+      expect(screen.getByRole('list', { name: 'Projects in WH40k' })).toBeTruthy();
+    });
+
+    it('does not change the shown project when another project moves into the viewed category', async () => {
+      await renderApp();
+      choose('Move project Party', 'Move to WH40k'); // Marines is shown and stays first in WH40k
+      shown('WH40k', 'Marines');
+      expect(screen.queryByLabelText('Project name: Party')).toBeNull();
+    });
+
+    it('keeps the implicitly shown project shown when it moves', async () => {
+      await renderApp(); // nothing selected: Marines is shown as the first of WH40k
+      choose('Move project Marines', 'Move to D&D');
+      shown('D&D', 'Marines');
+    });
+
+    it('changes nothing that is shown when a category moves', async () => {
+      await renderApp();
+      choose('Move category D&D', 'Move up');
+      const nav = screen.getByRole('navigation', { name: 'Categories' });
+      expect(within(nav).getAllByRole('button', { name: /^(WH40k|D&D)$/ }).map(b => b.textContent)).toEqual(['D&D', 'WH40k']);
+      shown('WH40k', 'Marines');
+    });
+
+    it('announces the move in the sidebar status region', async () => {
+      await renderApp();
+      choose('Move project Party', 'Move to WH40k');
+      expect(screen.getByText('Moved project "Party" to category "WH40k", position 2 of 2.')).toBeTruthy();
     });
   });
 

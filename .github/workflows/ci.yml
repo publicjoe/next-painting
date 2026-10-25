@@ -3,10 +3,13 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Weekly, so a new advisory surfaces between pull requests. Only the audit job runs.
+  schedule:
+    - cron: '17 6 * * 1'
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 # Each job is its own check on the pull request. They run in parallel.
 jobs:
@@ -26,6 +29,7 @@ jobs:
 
   lint-and-types:
     name: Lint and types
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -40,6 +44,7 @@ jobs:
 
   unit-tests:
     name: Unit tests (Vitest)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -53,6 +58,7 @@ jobs:
 
   build:
     name: Production build
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -73,6 +79,7 @@ jobs:
 
   e2e:
     name: Browser tests (Playwright)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
