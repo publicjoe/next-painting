@@ -511,6 +511,123 @@ describe('PaintLogApp', () => {
     });
   });
 
+  describe('moving a unit', () => {
+    const choose = (menu: string, option: string) => {
+      fireEvent.click(screen.getByRole('button', { name: menu }));
+      fireEvent.click(screen.getByRole('menuitem', { name: option }));
+    };
+    const addUnit = (name: string) => {
+      type('New unit name', name);
+      fireEvent.click(screen.getByRole('button', { name: 'Add Unit' }));
+    };
+    const unitNames = () =>
+      screen.getAllByLabelText(/^Name of /).map(el => (el as HTMLInputElement).getAttribute('aria-label')!.replace('Name of ', ''));
+    // The keyboard sensor starts listening for keys on the next tick
+    const tick = () => act(() => new Promise(resolve => setTimeout(resolve, 0)));
+    const key = (code: string, target: Element | Document = document) => fireEvent.keyDown(target, { code, key: code === 'Space' ? ' ' : code });
+    const keyboardDrag = async (grip: string, arrows: number) => {
+      const handle = screen.getByRole('button', { name: grip });
+      handle.focus();
+      key('Space', handle);
+      await tick();
+      for (let i = 0; i < arrows; i++) key('ArrowDown');
+      key('Space');
+      await tick();
+    };
+    const tableStatus = () => screen.getAllByRole('status').find(el => el.textContent?.startsWith('Moved unit'));
+
+    it('reorders the units of a project from the menu, and keeps focus on that unit’s Move button', async () => {
+      await renderApp();
+      addUnit('Sergeant');
+      addUnit('Scout');
+      expect(unitNames()).toEqual(['Captain', 'Sergeant', 'Scout']);
+      choose('Move unit Captain', 'Move down');
+      expect(unitNames()).toEqual(['Sergeant', 'Captain', 'Scout']);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move unit Captain' }));
+      choose('Move unit Scout', 'Move up');
+      expect(unitNames()).toEqual(['Sergeant', 'Scout', 'Captain']);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move unit Scout' }));
+    });
+
+    it('moves a unit to another project without changing what is shown, and announces it by name', async () => {
+      await renderApp();
+      addUnit('Sergeant');
+      choose('Move unit Captain', 'Move to Party (D&D)');
+      expect(screen.getByRole('heading', { level: 2, name: 'WH40k' })).toBeTruthy();
+      expect(screen.getByLabelText('Project name: Marines')).toBeTruthy();
+      expect(unitNames()).toEqual(['Sergeant']);
+      expect(tableStatus()?.textContent).toBe('Moved unit "Captain" to project "Party", position 2 of 2.');
+      // It is at the end of Party, and the sidebar counts follow
+      fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
+      expect(unitNames()).toEqual(['Rogue', 'Captain']);
+      expect(screen.getByRole('button', { name: /^Marines, 0 of 1 units completed/ })).toBeTruthy();
+    });
+
+    it('sends focus to the unit that takes the moved unit’s place, or the new unit field when none is left', async () => {
+      await renderApp();
+      addUnit('Sergeant');
+      choose('Move unit Captain', 'Move to Party (D&D)');
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move unit Sergeant' }));
+      choose('Move unit Sergeant', 'Move to Party (D&D)');
+      expect(document.activeElement).toBe(screen.getByLabelText('New unit name'));
+    });
+
+    it('labels projects that share a name by their category', async () => {
+      await renderApp();
+      type('New project name', 'Party');
+      fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+      // The new "Party" in WH40k is shown, empty
+      fireEvent.click(screen.getByRole('button', { name: /^Marines, / }));
+      fireEvent.click(screen.getByRole('button', { name: 'Move unit Captain' }));
+      expect(screen.getAllByRole('menuitem').map(i => i.textContent)).toEqual([
+        'Move up', 'Move down', 'Move to Party (WH40k)', 'Move to Party (D&D)',
+      ]);
+    });
+
+    it('moves a unit with the keyboard onto a project in the sidebar, without changing what is shown', async () => {
+      await renderApp();
+      // Captain is alone in Marines: its table, Marines, then Party
+      await keyboardDrag('Drag unit Captain', 2);
+      expect(screen.getByRole('heading', { level: 2, name: 'WH40k' })).toBeTruthy();
+      expect(screen.getByLabelText('Project name: Marines')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Drag unit Captain' })).toBeNull();
+      expect(screen.getByText('No units in this project yet.')).toBeTruthy();
+      // The row that held focus is gone: focus goes to the new unit field, not <body>
+      expect(document.activeElement).toBe(screen.getByLabelText('New unit name'));
+      fireEvent.click(screen.getByRole('button', { name: /^Party, / }));
+      expect(unitNames()).toEqual(['Rogue', 'Captain']);
+    });
+
+    it('reorders with the keyboard and keeps focus on the grip', async () => {
+      await renderApp();
+      addUnit('Sergeant');
+      await keyboardDrag('Drag unit Captain', 1);
+      expect(unitNames()).toEqual(['Sergeant', 'Captain']);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Drag unit Captain' }));
+    });
+
+    it('sends focus to the neighbouring unit when a keyboard drag takes a unit away', async () => {
+      await renderApp();
+      addUnit('Sergeant');
+      // Captain, Sergeant: slots are before Sergeant (start), after Sergeant, Marines, Party
+      await keyboardDrag('Drag unit Captain', 3);
+      expect(unitNames()).toEqual(['Sergeant']);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move unit Sergeant' }));
+    });
+
+    it('does not move a unit when the drag is cancelled', async () => {
+      await renderApp();
+      const handle = screen.getByRole('button', { name: 'Drag unit Captain' });
+      handle.focus();
+      key('Space', handle);
+      await tick();
+      key('ArrowDown');
+      key('Escape');
+      await tick();
+      expect(unitNames()).toEqual(['Captain']);
+    });
+  });
+
   describe('load error', () => {
     const corrupt = () => {
       localStorage.setItem(STORAGE_KEY, '{bad');

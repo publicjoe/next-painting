@@ -1,4 +1,4 @@
-import type { Category, Project } from '@/types';
+import type { Category, Model, Project } from '@/types';
 import type { DndKind } from './dnd-ids';
 
 /**
@@ -38,6 +38,47 @@ export function resolveProjectDrop(
     if (current === toIndexInCategory) return null;
   }
   return { toCategoryId, toIndexInCategory };
+}
+
+/**
+ * Turn a drop position into the arguments of MOVE_MODEL, with the same index
+ * convention as above. A unit row is before or after that row; a project row
+ * (in the sidebar) or a project's empty unit table is the end of that project.
+ * Header and list targets (categories) are not unit drops.
+ */
+export function resolveUnitDrop(
+  models: Model[],
+  projects: Project[],
+  activeId: string,
+  over: { kind: DndKind; id: string },
+  after: boolean
+): { toProjectId: string; toIndexInProject: number } | null {
+  const active = models.find(m => m.id === activeId);
+  if (!active) return null;
+
+  let toProjectId: string;
+  let anchorId: string | null = null; // the unit the drop is relative to
+  if (over.kind === 'unit') {
+    const target = models.find(m => m.id === over.id);
+    if (!target || target.id === active.id) return null;
+    toProjectId = target.projectId;
+    anchorId = target.id;
+  } else if (over.kind === 'proj' || over.kind === 'ulist') {
+    toProjectId = over.id; // end of that project
+  } else {
+    return null;
+  }
+  if (!projects.some(p => p.id === toProjectId)) return null;
+
+  const rest = models.filter(m => m.projectId === toProjectId && m.id !== active.id);
+  const toIndexInProject =
+    anchorId === null ? rest.length : rest.findIndex(m => m.id === anchorId) + (after ? 1 : 0);
+
+  if (toProjectId === active.projectId) {
+    const current = models.filter(m => m.projectId === toProjectId).findIndex(m => m.id === active.id);
+    if (current === toIndexInProject) return null;
+  }
+  return { toProjectId, toIndexInProject };
 }
 
 /** Post-removal index for MOVE_CATEGORY, or null when nothing would change or an id is missing. */

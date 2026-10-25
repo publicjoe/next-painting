@@ -6,15 +6,15 @@ import {
   type ScreenReaderInstructions,
   type UniqueIdentifier,
 } from '@dnd-kit/core';
-import type { Category, Project } from '@/types';
+import type { Category, Model, Project } from '@/types';
 import { getEventCoordinates } from '@dnd-kit/utilities';
 import { dndId, parseDndId, type DndKind } from './dnd-ids';
-import { resolveCategoryDrop, resolveProjectDrop } from './drop-target';
+import { resolveCategoryDrop, resolveProjectDrop, resolveUnitDrop } from './drop-target';
 
 /**
- * The sidebar's drag logic that does not need React: where a drop lands, how
- * the keyboard steps between drop positions, which droppables a drag may hit,
- * and what a screen reader hears. dnd-kit only reports what is under the
+ * The drag logic of the sidebar and the unit table that does not need React:
+ * where a drop lands, how the keyboard steps between drop positions, which
+ * droppables a drag may hit, and what a screen reader hears. dnd-kit only reports what is under the
  * dragged item; everything that decides the move lives here or in drop-target.
  */
 
@@ -27,13 +27,21 @@ export interface Drop {
 export type ResolvedDrop =
   | { kind: 'proj'; toCategoryId: string; toIndexInCategory: number }
   | { kind: 'cat'; toIndex: number }
+  | { kind: 'unit'; toProjectId: string; toIndexInProject: number }
   | null;
 
 type Active = { kind: DndKind; id: string };
 
-/** The move a drop would make, or null when it would change nothing. */
-export function resolveDrop(categories: Category[], projects: Project[], active: Active, drop: Drop | null): ResolvedDrop {
+/**
+ * The move a drop would make, or null when it would change nothing. `models`
+ * is only read for unit drags, so category and project callers may omit it.
+ */
+export function resolveDrop(categories: Category[], projects: Project[], active: Active, drop: Drop | null, models: Model[] = []): ResolvedDrop {
   if (!drop) return null;
+  if (active.kind === 'unit') {
+    const move = resolveUnitDrop(models, projects, active.id, drop.over, drop.after);
+    return move && { kind: 'unit', ...move };
+  }
   if (active.kind === 'proj') {
     const move = resolveProjectDrop(projects, active.id, drop.over, drop.after);
     return move && { kind: 'proj', ...move };
@@ -50,12 +58,36 @@ export function resolveDrop(categories: Category[], projects: Project[], active:
  * can go before any other project, after the last one in an open category, into
  * an empty open category (its list), or onto a closed category (its header,
  * which appends). A category can go before any other category or after the last.
+ * A unit can go before or after any other unit of its project (or, when it is
+ * alone, onto its own table), then onto each project in the sidebar in order,
+ * which appends to it. A closed category with projects is one stop, its header:
+ * it holds no move, but resting there opens it so its projects become slots.
  */
-export function keyboardSlots(categories: Category[], projects: Project[], active: Active, isOpen: (categoryId: string) => boolean): Drop[] {
+export function keyboardSlots(
+  categories: Category[],
+  projects: Project[],
+  active: Active,
+  isOpen: (categoryId: string) => boolean,
+  models: Model[] = []
+): Drop[] {
   const around = (kind: DndKind, ids: string[]): Drop[] =>
     ids.length === 0 ? [] : [...ids.map(id => ({ over: { kind, id }, after: false })), { over: { kind, id: ids[ids.length - 1] }, after: true }];
 
   if (active.kind === 'cat') return around('cat', categories.filter(c => c.id !== active.id).map(c => c.id));
+
+  if (active.kind === 'unit') {
+    const unit = models.find(m => m.id === active.id);
+    const own = unit ? models.filter(m => m.projectId === unit.projectId && m.id !== unit.id).map(m => m.id) : [];
+    const table: Drop[] =
+      !unit ? [] : own.length === 0 ? [{ over: { kind: 'ulist', id: unit.projectId }, after: false }] : around('unit', own);
+    const sidebar = categories.flatMap((category): Drop[] => {
+      const inCategory = projects.filter(p => p.categoryId === category.id);
+      if (inCategory.length === 0) return [];
+      if (!isOpen(category.id)) return [{ over: { kind: 'hdr', id: category.id }, after: false }];
+      return inCategory.map(p => ({ over: { kind: 'proj' as const, id: p.id }, after: false }));
+    });
+    return [...table, ...sidebar];
+  }
 
   return categories.flatMap((category): Drop[] => {
     if (!isOpen(category.id)) return [{ over: { kind: 'hdr', id: category.id }, after: false }];
@@ -79,12 +111,19 @@ export function stepKeyboardDrop(
   active: Active,
   isOpen: (categoryId: string) => boolean,
   current: Drop | null,
-  direction: -1 | 0 | 1
+  direction: -1 | 0 | 1,
+  models: Model[] = []
 ): Drop | null {
-  const slots = keyboardSlots(categories, projects, active, isOpen);
+  const slots = keyboardSlots(categories, projects, active, isOpen, models);
   if (slots.length === 0) return null;
-  const resolve = (d: Drop | null) => resolveDrop(categories, projects, active, d);
+  const resolve = (d: Drop | null) => resolveDrop(categories, projects, active, d, models);
   let at = current ? slots.findIndex(s => dropKey(s) === dropKey(current)) : -1;
+  // A unit resting on a closed header made no move, so the header's own slot has gone
+  // once the category opened: land on its first project, not back at the start
+  if (at === -1 && active.kind === 'unit' && current?.over.kind === 'hdr') {
+    const categoryId = current.over.id;
+    at = slots.findIndex(s => s.over.kind === 'proj' && projects.some(p => p.id === s.over.id && p.categoryId === categoryId));
+  }
   // The exact slot has gone: find one that makes the same move, else the start
   if (at === -1) at = slots.findIndex(s => sameMove(resolve(s), resolve(current)));
   if (at === -1) at = Math.max(0, slots.findIndex(s => resolve(s) === null));
@@ -109,7 +148,7 @@ export function pointerDrop(
   const start = activatorEvent ? getEventCoordinates(activatorEvent) : null;
   const { initial, translated } = activeRect;
   const y = start && initial && translated ? start.y + translated.top - initial.top : over.rect.top;
-  const after = (target.kind === 'proj' || target.kind === 'cat') && y > over.rect.top + over.rect.height / 2;
+  const after = (target.kind === 'proj' || target.kind === 'cat' || target.kind === 'unit') && y > over.rect.top + over.rect.height / 2;
   return { over: target, after };
 }
 
@@ -117,8 +156,12 @@ export function pointerDrop(
  * Collision detection filtered by what is being dragged. A category only ever
  * hits categories. A project hits projects, open category lists and closed
  * category headers; within a list the nearest project wins, so a pointer in
- * the gap between two rows still lands between them. Keyboard drags have no
- * pointer: they hit exactly the drop the keyboard chose.
+ * the gap between two rows still lands between them. A unit hits unit rows,
+ * sidebar project rows, and a closed category header (which makes no move but
+ * opens on hover) and its project's unit table; within a table the nearest row
+ * wins. Unlike a project, a unit released over nothing hits nothing, so it
+ * cannot land in another project by accident. Keyboard drags have no pointer:
+ * they hit exactly the drop the keyboard chose.
  */
 export function detectCollisions(args: Parameters<CollisionDetection>[0], keyboardDrop: Drop | null): ReturnType<CollisionDetection> {
   const kindOf = (id: UniqueIdentifier) => parseDndId(id)?.kind;
@@ -129,6 +172,22 @@ export function detectCollisions(args: Parameters<CollisionDetection>[0], keyboa
   }
   if (kindOf(args.active.id) === 'cat') {
     return closestCenter({ ...args, droppableContainers: args.droppableContainers.filter(c => kindOf(c.id) === 'cat') });
+  }
+  if (kindOf(args.active.id) === 'unit') {
+    const targets = args.droppableContainers.filter(c => {
+      const kind = kindOf(c.id);
+      return kind === 'unit' || kind === 'proj' || kind === 'hdr' || kind === 'ulist';
+    });
+    const within = pointerWithin({ ...args, droppableContainers: targets });
+    for (const kind of ['unit', 'proj', 'hdr'] as const) {
+      const hits = within.filter(c => kindOf(c.id) === kind);
+      if (hits.length) return hits;
+    }
+    const table = within.find(c => kindOf(c.id) === 'ulist');
+    if (!table) return [];
+    const projectId = parseDndId(table.id)?.id;
+    const rows = targets.filter(c => kindOf(c.id) === 'unit' && c.data.current?.projectId === projectId);
+    return rows.length ? closestCenter({ ...args, droppableContainers: rows }) : [table];
   }
   const candidates = args.droppableContainers.filter(c => {
     const kind = kindOf(c.id);
@@ -175,6 +234,8 @@ export const screenReaderInstructions: ScreenReaderInstructions = {
 export interface AnnouncementContext {
   categories: Category[];
   projects: Project[];
+  /** Read for unit drags only. */
+  models?: Model[];
   drop: Drop | null;
   /** The drag was cancelled because the data changed, so the drop dispatches nothing. */
   cancelled?: boolean;
@@ -192,8 +253,22 @@ export function createAnnouncer() {
   let lastKey = 'origin';
 
   const lookup = (ctx: AnnouncementContext, rawId: UniqueIdentifier) => {
-    const { categories, projects } = ctx;
+    const { categories, projects, models = [] } = ctx;
     const parsed = parseDndId(rawId);
+    if (parsed?.kind === 'unit') {
+      const unit = models.find(m => m.id === parsed.id);
+      if (!unit) return null;
+      const siblings = models.filter(m => m.projectId === unit.projectId);
+      const project = projects.find(p => p.id === unit.projectId);
+      const where = `project "${project?.name ?? 'unknown'}", position ${siblings.indexOf(unit) + 1} of ${siblings.length}`;
+      return {
+        kind: 'unit' as const,
+        id: parsed.id,
+        label: `unit "${unit.name}"`,
+        start: ` in ${where}`,
+        stays: `in ${where}`,
+      };
+    }
     if (parsed?.kind === 'proj') {
       const project = projects.find(p => p.id === parsed.id);
       if (!project) return null;
@@ -225,10 +300,19 @@ export function createAnnouncer() {
 
   /** Where the current drop would put the item, in words, with a key for spotting changes. */
   const destination = (ctx: AnnouncementContext, item: NonNullable<ReturnType<typeof lookup>>) => {
-    const { categories, projects, drop } = ctx;
-    const move = resolveDrop(categories, projects, item, drop);
+    const { categories, projects, models = [], drop } = ctx;
+    const move = resolveDrop(categories, projects, item, drop, models);
     if (!drop) return { key: 'none', move: null, text: null };
     if (!move) return { key: 'origin', move: null, text: null };
+    if (move.kind === 'unit') {
+      const target = projects.find(p => p.id === move.toProjectId);
+      const count = models.filter(m => m.projectId === move.toProjectId && m.id !== item.id).length + 1;
+      return {
+        key: `unit:${move.toProjectId}:${move.toIndexInProject}`,
+        move,
+        text: `project "${target?.name ?? 'unknown'}", position ${move.toIndexInProject + 1} of ${count}`,
+      };
+    }
     if (move.kind === 'cat') {
       return { key: `cat:${move.toIndex}`, move, text: `position ${move.toIndex + 1} of ${categories.length}` };
     }

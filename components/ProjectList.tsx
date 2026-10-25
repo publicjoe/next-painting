@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { Project, Model, Category, StatusField } from '@/types';
-import { ModelTable } from './ModelTable';
+import { ModelTable, type MoveTarget } from './ModelTable';
 import { InlineEditText } from './InlineEditText';
 import { EmptyBoxIcon, TrashIcon } from './icons';
 import { getProjectProgress } from '@/lib/progress';
@@ -17,6 +17,8 @@ interface ProjectListProps {
   onUpdateModel: (model: Model) => void;
   onDeleteModel: (id: string) => void;
   onToggleStatus: (id: string, field: StatusField) => void;
+  moveTargets: MoveTarget[];
+  onMoveModel: (id: string, toProjectId: string, toIndexInProject: number) => void;
 }
 
 export function ProjectList({
@@ -30,6 +32,8 @@ export function ProjectList({
   onUpdateModel,
   onDeleteModel,
   onToggleStatus,
+  moveTargets,
+  onMoveModel,
 }: ProjectListProps) {
   const [newProjectName, setNewProjectName] = useState('');
 
@@ -138,6 +142,8 @@ export function ProjectList({
               onUpdateModel={onUpdateModel}
               onDeleteModel={onDeleteModel}
               onToggleStatus={onToggleStatus}
+              moveTargets={moveTargets}
+              onMoveModel={onMoveModel}
             />
           </div>
         </section>

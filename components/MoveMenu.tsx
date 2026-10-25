@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { MoreIcon } from './icons';
 
 export interface MoveOption {
@@ -15,6 +15,12 @@ interface MoveMenuProps {
   options: MoveOption[];
   /** Identifies the trigger so a parent can find it again after a re-render moves it. */
   focusKey?: string;
+  /**
+   * Position the menu against the viewport instead of the trigger's container, for
+   * a trigger inside a scrolling or clipping box (the unit table's overflow-x-auto
+   * would otherwise cut the menu off). The menu closes if the page scrolls or resizes.
+   */
+  fixed?: boolean;
 }
 
 /**
@@ -22,12 +28,41 @@ interface MoveMenuProps {
  * alternative to dragging. Disabled options use aria-disabled so they stay
  * discoverable, and do nothing when activated.
  */
-export function MoveMenu({ label, options, focusKey }: MoveMenuProps) {
+export function MoveMenu({ label, options, focusKey, fixed = false }: MoveMenuProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const items = useRef<(HTMLButtonElement | null)[]>([]);
   const menuId = useId();
+  const [fixedStyle, setFixedStyle] = useState<CSSProperties | null>(null);
+
+  // Place a fixed menu under its trigger, right-aligned, before it is painted
+  useLayoutEffect(() => {
+    if (!fixed || !open || !trigger.current) return;
+    const rect = trigger.current.getBoundingClientRect();
+    const top = rect.bottom + 4;
+    setFixedStyle({
+      position: 'fixed',
+      top,
+      right: Math.max(0, window.innerWidth - rect.right),
+      maxHeight: Math.max(96, window.innerHeight - top - 8),
+      overflowY: 'auto',
+    });
+  }, [fixed, open]);
+
+  useEffect(() => {
+    if (!fixed || !open) return;
+    const dismiss = (e: Event) => {
+      if (e.target instanceof Node && root.current?.contains(e.target)) return; // scrolling the menu itself
+      setOpen(false);
+    };
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('resize', dismiss);
+    return () => {
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('resize', dismiss);
+    };
+  }, [fixed, open]);
 
   const enabled = () => items.current.filter((el): el is HTMLButtonElement => !!el && el.getAttribute('aria-disabled') !== 'true');
 
@@ -95,7 +130,10 @@ export function MoveMenu({ label, options, focusKey }: MoveMenuProps) {
           id={menuId}
           role="menu"
           aria-label={label}
-          className="absolute right-0 top-full z-20 mt-1 min-w-40 rounded-lg border border-zinc-600 bg-zinc-900 py-1 text-sm text-zinc-200 shadow-lg"
+          style={fixed ? (fixedStyle ?? { position: 'fixed' }) : undefined}
+          className={`z-20 min-w-40 rounded-lg border border-zinc-600 bg-zinc-900 py-1 text-sm text-zinc-200 shadow-lg ${
+            fixed ? '' : 'absolute right-0 top-full mt-1'
+          }`}
         >
           {options.map((option, i) => (
             <button

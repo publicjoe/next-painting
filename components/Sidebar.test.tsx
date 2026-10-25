@@ -4,9 +4,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { axe } from '@/lib/test-axe';
 import { HOVER_OPEN_MS } from '@/hooks/useHoverOpen';
-import { Sidebar } from './Sidebar';
+import { Sidebar as BareSidebar } from './Sidebar';
+import { PaintDndProvider } from './PaintDndProvider';
 
 afterEach(cleanup);
+
+// The sidebar lives inside the app's one drag and drop context (PaintDndProvider), which
+// takes the same data and move handlers. These tests are about the sidebar, so it is
+// wrapped in a provider that holds no units.
+function Sidebar(props: React.ComponentProps<typeof BareSidebar>) {
+  return (
+    <PaintDndProvider
+      categories={props.categories}
+      projects={props.projects}
+      models={[]}
+      onMoveProject={props.onMoveProject}
+      onMoveCategory={props.onMoveCategory}
+      onMoveModel={() => {}}
+    >
+      <BareSidebar {...props} />
+    </PaintDndProvider>
+  );
+}
 
 const setup = (names: string[]) => {
   const onAddCategory = vi.fn();
