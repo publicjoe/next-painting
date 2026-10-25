@@ -4,6 +4,14 @@ import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-
 import type { Category, Model, Project } from '@/types';
 import { getProjectProgress } from '@/lib/progress';
 import { dndId } from '@/lib/dnd-ids';
+import {
+  categoryClashMessage,
+  categoryRenameRefusedMessage,
+  findCategoryClash,
+  findCategoryRenameClash,
+  findMoveClash,
+  moveClashMessage,
+} from '@/lib/names';
 import { useDragDrop } from './PaintDndProvider';
 import { DragHandle } from './DragHandle';
 import { InlineEditText } from './InlineEditText';
@@ -143,19 +151,14 @@ export function Sidebar({
     if (expandCategoryId !== null) onExpanded();
   }, [expandCategoryId, onExpanded]);
 
-  // Category names must be unique (ignoring case, surrounding spaces and Unicode
-  // composition, so "Cafe" with a combining accent matches the composed form), because
-  // the buttons are labelled by name and two identical ones are ambiguous.
-  const canonical = (name: string) => name.trim().normalize('NFC').toLowerCase();
-  const isNameTaken = (name: string, exceptId?: string) => {
-    const wanted = canonical(name);
-    return categories.some(c => c.id !== exceptId && canonical(c.name) === wanted);
-  };
+  // Category names must be unique, compared as in lib/names.ts (the reducer refuses
+  // a clash too). The buttons are labelled by name, so two identical ones are ambiguous.
+  const isNameTaken = (name: string) => !!findCategoryClash(categories, name);
 
   const handleAdd = (e: FormEvent) => {
     e.preventDefault();
     if (isNameTaken(newCatName)) {
-      setNameError(`A category named "${newCatName.trim()}" already exists.`);
+      setNameError(categoryClashMessage(newCatName));
       return;
     }
     if (newCatName.trim()) {
@@ -181,6 +184,14 @@ export function Sidebar({
   const moveProject = (project: Project, toCategoryId: string, toIndex: number) => {
     const target = categories.find(c => c.id === toCategoryId);
     if (!target) return;
+    // A project may not join a category that already holds one of the same name. Nothing
+    // moves; the reason goes to the alert, which the menu's focus return leaves alone.
+    const clash = findMoveClash(projects, project.id, toCategoryId);
+    if (clash) {
+      setNameError(moveClashMessage(project, target.name, clash));
+      return;
+    }
+    setNameError(null);
     const inTarget = projects.filter(p => p.categoryId === toCategoryId && p.id !== project.id).length;
     focusTarget.current = { kind: 'move', key: `project:${project.id}` };
     // The target's list may be collapsed (hidden), which would leave nothing to focus
@@ -221,11 +232,22 @@ export function Sidebar({
   useLayoutEffect(() => registerSidebar({
     isOpen: id => !isClosed(collapsed, id),
     open: id => setCollapsed(prev => (isClosed(prev, id) ? { ...prev, [id]: false } : prev)),
+    refuse: message => setNameError(message),
   }), [collapsed, registerSidebar]);
+
+  // A refusal left by an earlier drop goes when the next drag starts. Adjusted while
+  // rendering, as for the expand request, so a refusal set at the end of a drag stays.
+  const [wasDragging, setWasDragging] = useState(false);
+  if ((dragItem !== null) !== wasDragging) {
+    setWasDragging(dragItem !== null);
+    if (dragItem !== null && nameError) setNameError(null);
+  }
 
   // Where the indicator goes, from the same resolver the drop dispatches with
   const indicator: { before?: string; after?: string; list?: string; header?: string; project?: string } = {};
-  if (dragItem?.kind === 'proj' && move?.kind === 'proj') {
+  // A refused project move (it would clash on name) shows no line: nothing would land there
+  const refusedMove = dragItem?.kind === 'proj' && move?.kind === 'proj' && !!findMoveClash(projects, dragItem.id, move.toCategoryId);
+  if (dragItem?.kind === 'proj' && move?.kind === 'proj' && !refusedMove) {
     const rest = projects.filter(p => p.categoryId === move.toCategoryId && p.id !== dragItem.id);
     if (isClosed(collapsed, move.toCategoryId)) indicator.header = move.toCategoryId;
     else if (rest.length === 0) indicator.list = move.toCategoryId;
@@ -319,12 +341,12 @@ export function Sidebar({
                       className="flex-1 min-w-0 m-1 bg-zinc-900 border border-zinc-700 text-zinc-100 text-sm rounded p-1 focus:border-blue-500"
                       value={cat.name}
                       onCommit={(name) => {
-                        if (isNameTaken(name, cat.id)) {
+                        if (findCategoryRenameClash(categories, cat, name)) {
                           // Stay in edit mode so the typed name can be corrected
                           refusedRename.current = true;
                           // The blur that triggered this commit has just removed focus; put it back
                           setTimeout(() => renameInput.current?.focus(), 0);
-                          setNameError(`A category named "${name.trim()}" already exists, so "${cat.name}" was not renamed. Edit the name or press Escape.`);
+                          setNameError(categoryRenameRefusedMessage(name, cat.name));
                           return;
                         }
                         setNameError(null);

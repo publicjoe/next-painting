@@ -125,6 +125,33 @@ describe('createAnnouncer', () => {
     );
   });
 
+  it('says a project cannot be dropped into a category that already holds its name, and that it was not moved', () => {
+    const clashing = [...projects, { id: 'p4', categoryId: 'c2', name: ' intercessors' }];
+    const ctx = { categories, projects: clashing, drop: null as Drop | null };
+    const a = createAnnouncer();
+    a.onDragStart(ctx, { active: active('proj:p1') });
+    ctx.drop = { over: proj('p3'), after: false };
+    const text = a.onDragOver(ctx, { active: active('proj:p1'), over: over('proj:p3') });
+    expect(text).toBe('Project "Intercessors" cannot be dropped here: category "Orks" already has a project named " intercessors".');
+    // The same refused category again is not repeated
+    ctx.drop = { over: proj('p3'), after: true };
+    expect(a.onDragOver(ctx, { active: active('proj:p1'), over: over('proj:p3') })).toBeUndefined();
+    expect(a.onDragEnd(ctx, { active: active('proj:p1'), over: over('proj:p3') })).toBe(
+      'Project "Intercessors" was not moved: category "Orks" already has a project named " intercessors".',
+    );
+    // A slot in a category without the name still announces a move
+    ctx.drop = { over: { kind: 'list', id: 'c3' }, after: false };
+    expect(a.onDragOver(ctx, { active: active('proj:p1'), over: over('list:c3') })).toBe(
+      'Project "Intercessors" will move to category "Empty", position 1 of 1.',
+    );
+  });
+
+  it('does not treat a reorder in the own category as a clash, even with a namesake there', () => {
+    const dirty = [...projects, { id: 'p4', categoryId: 'c1', name: 'intercessors' }];
+    const ctx = { categories, projects: dirty, drop: { over: proj('p2'), after: true } as Drop };
+    expect(createAnnouncer().onDragEnd(ctx, { active: active('proj:p1'), over: over('proj:p2') })).toMatch(/^Moved project/);
+  });
+
   it('says a drop was cancelled, not moved, when the data change cancelled the drag', () => {
     const { a, ctx } = setupAnnouncements({ over: { kind: 'hdr', id: 'c2' }, after: false });
     const text = a.onDragEnd({ ...ctx, cancelled: true }, { active: active('proj:p1'), over: over('hdr:c2') });

@@ -544,7 +544,7 @@ describe('Sidebar', () => {
     });
 
     it('offers a separate Move to item for each of two categories with the same name', () => {
-      // Import validation allows duplicate names; the add and rename forms do not
+      // Stored data can hold duplicate names (the rules apply from the next add, rename or move)
       const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
       const props = baseProps();
       render(<Sidebar {...props} categories={[...categories, { id: 'c4', name: 'Orks' }]} />);

@@ -10,6 +10,9 @@ interface InlineEditTextProps {
   inputRef?: Ref<HTMLInputElement>;
   /** Called after a commit or cancel, e.g. to leave an "editing" mode. */
   onFinish?: () => void;
+  /** Marks the field invalid, with `describedBy` naming the element that says why. */
+  invalid?: boolean;
+  describedBy?: string;
 }
 
 // Keeps a local draft and only commits the trimmed value on blur or Enter.
@@ -22,6 +25,8 @@ export function InlineEditText({
   autoFocus,
   inputRef,
   onFinish,
+  invalid,
+  describedBy,
 }: InlineEditTextProps) {
   const [draft, setDraft] = useState(value);
   const [prevValue, setPrevValue] = useState(value);
@@ -51,6 +56,8 @@ export function InlineEditText({
       ref={inputRef}
       autoFocus={autoFocus}
       aria-label={ariaLabel}
+      aria-invalid={invalid || undefined}
+      aria-describedby={invalid ? describedBy : undefined}
       className={className}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}

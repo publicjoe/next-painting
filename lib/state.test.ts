@@ -325,3 +325,125 @@ describe('MOVE_MODEL', () => {
     }
   });
 });
+
+describe('naming rules backstop', () => {
+  const same = (before: AppState, action: Action) => expect(reducer(before, action)).toBe(before);
+  const names = (s: AppState) => ({ c: s.categories.map(c => c.name), p: s.projects.map(p => p.name) });
+
+  it('refuses a duplicate category on add and rename, with the same state object', () => {
+    same(seeded, { type: 'ADD_CATEGORY', payload: { id: 'c9', name: 'd&d' } });
+    same(seeded, { type: 'ADD_CATEGORY', payload: { id: 'c9', name: '  WH40K ' } });
+    same(seeded, { type: 'UPDATE_CATEGORY', payload: { id: 'c1', name: 'D&D' } });
+  });
+
+  it('allows a category rename that only changes the case or spacing of itself', () => {
+    const next = reducer(seeded, { type: 'UPDATE_CATEGORY', payload: { id: 'c1', name: ' wh40K ' } });
+    expect(next.categories[0].name).toBe(' wh40K ');
+  });
+
+  it('refuses a duplicate project in its category, but allows the same name elsewhere', () => {
+    same(seeded, { type: 'ADD_PROJECT', payload: { id: 'p9', categoryId: 'c1', name: 'MARINES' } });
+    const elsewhere = reducer(seeded, { type: 'ADD_PROJECT', payload: { id: 'p9', categoryId: 'c2', name: 'Marines' } });
+    expect(elsewhere.projects.map(p => p.id)).toEqual(['p1', 'p2', 'p9']);
+  });
+
+  it('refuses a project rename onto a sibling, and allows a case-only rename of itself', () => {
+    const two = reducer(seeded, { type: 'ADD_PROJECT', payload: { id: 'p3', categoryId: 'c1', name: 'Orks' } });
+    same(two, { type: 'UPDATE_PROJECT', payload: { id: 'p3', categoryId: 'c1', name: ' marines' } });
+    const renamed = reducer(two, { type: 'UPDATE_PROJECT', payload: { id: 'p1', categoryId: 'c1', name: 'MARINES' } });
+    expect(renamed.projects[0].name).toBe('MARINES');
+  });
+
+  it('refuses an UPDATE_PROJECT that changes category into a clash', () => {
+    const state: AppState = { ...seeded, projects: [...seeded.projects, { id: 'p3', categoryId: 'c2', name: 'Marines' }] };
+    same(state, { type: 'UPDATE_PROJECT', payload: { id: 'p1', categoryId: 'c2', name: 'Marines' } });
+  });
+
+  it('refuses a move into a category that holds the name, and allows other moves and reorders', () => {
+    const state: AppState = { ...seeded, projects: [...seeded.projects, { id: 'p3', categoryId: 'c2', name: ' marines ' }] };
+    same(state, { type: 'MOVE_PROJECT', payload: { id: 'p1', toCategoryId: 'c2', toIndexInCategory: 0 } });
+    // p2 "Party" has no namesake in c1
+    expect(reducer(state, { type: 'MOVE_PROJECT', payload: { id: 'p2', toCategoryId: 'c1', toIndexInCategory: 0 } }).projects.find(p => p.id === 'p2')?.categoryId).toBe('c1');
+    // reordering within c2 is not a clash
+    expect(names(reducer(state, { type: 'MOVE_PROJECT', payload: { id: 'p3', toCategoryId: 'c2', toIndexInCategory: 0 } })).p).toEqual(['Marines', ' marines ', 'Party']);
+  });
+
+  describe('data that already holds duplicates', () => {
+    const dirty: AppState = {
+      categories: [{ id: 'c1', name: 'Same' }, { id: 'c2', name: 'same' }, { id: 'c3', name: 'Other' }],
+      projects: [
+        { id: 'p1', categoryId: 'c1', name: 'Twin' },
+        { id: 'p2', categoryId: 'c1', name: 'twin' },
+        { id: 'p3', categoryId: 'c3', name: 'Solo' },
+      ],
+      models: [],
+    };
+
+    it('still loads', () => {
+      expect(migrateWithReport(dirty)?.state).toEqual(dirty);
+      expect(isAppState(dirty)).toBe(true);
+    });
+
+    it('renames other items, and re-saves a duplicate unchanged or with only its case changed', () => {
+      expect(reducer(dirty, { type: 'UPDATE_CATEGORY', payload: { id: 'c3', name: 'Renamed' } }).categories[2].name).toBe('Renamed');
+      expect(reducer(dirty, { type: 'UPDATE_PROJECT', payload: { id: 'p3', categoryId: 'c3', name: 'Solo 2' } }).projects[2].name).toBe('Solo 2');
+      expect(reducer(dirty, { type: 'UPDATE_CATEGORY', payload: { id: 'c2', name: 'SAME' } }).categories[1].name).toBe('SAME');
+      expect(reducer(dirty, { type: 'UPDATE_PROJECT', payload: { id: 'p2', categoryId: 'c1', name: 'TWIN' } }).projects[1].name).toBe('TWIN');
+    });
+
+    it('lets one of the duplicates be fixed by renaming it to something free, but not to the other', () => {
+      expect(reducer(dirty, { type: 'UPDATE_CATEGORY', payload: { id: 'c2', name: 'Fixed' } }).categories[1].name).toBe('Fixed');
+      same(dirty, { type: 'UPDATE_CATEGORY', payload: { id: 'c3', name: 'SAME' } });
+    });
+
+    it('still reorders and deletes', () => {
+      expect(reducer(dirty, { type: 'MOVE_CATEGORY', payload: { id: 'c2', toIndex: 0 } }).categories[0].id).toBe('c2');
+      expect(reducer(dirty, { type: 'MOVE_PROJECT', payload: { id: 'p2', toCategoryId: 'c1', toIndexInCategory: 0 } }).projects[0].id).toBe('p2');
+      expect(reducer(dirty, { type: 'DELETE_PROJECT', payload: 'p1' }).projects).toHaveLength(2);
+    });
+  });
+
+  it("is harmless for '__proto__' ids and names", () => {
+    let s = reducer(initialState, { type: 'ADD_CATEGORY', payload: { id: '__proto__', name: '__proto__' } });
+    s = reducer(s, { type: 'ADD_PROJECT', payload: { id: '__proto__', categoryId: '__proto__', name: '__proto__' } });
+    expect(s.categories).toHaveLength(1);
+    expect(s.projects).toHaveLength(1);
+    same(s, { type: 'ADD_CATEGORY', payload: { id: 'x', name: '__PROTO__' } });
+    same(s, { type: 'ADD_PROJECT', payload: { id: 'y', categoryId: '__proto__', name: '__proto__' } });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  describe('RESTORE_ITEMS', () => {
+    it('restores a deleted project when its name is still free', () => {
+      const removed = removedBy(seeded, 'project', 'p1');
+      const after = reducer(seeded, { type: 'DELETE_PROJECT', payload: 'p1' });
+      expect(reducer(after, { type: 'RESTORE_ITEMS', payload: removed }).projects.map(p => p.id)).toEqual(['p1', 'p2']);
+    });
+
+    it('does not restore a project, or its units, when its name has been taken since', () => {
+      const removed = removedBy(seeded, 'project', 'p1');
+      let s = reducer(seeded, { type: 'DELETE_PROJECT', payload: 'p1' });
+      s = reducer(s, { type: 'ADD_PROJECT', payload: { id: 'p9', categoryId: 'c1', name: 'marines' } });
+      const restored = reducer(s, { type: 'RESTORE_ITEMS', payload: removed });
+      expect(restored.projects.map(p => p.id)).toEqual(['p2', 'p9']);
+      expect(restored.models.map(m => m.id)).toEqual(['m2']);
+    });
+
+    it('does not restore a category, or its projects and units, when its name has been taken since', () => {
+      const removed = removedBy(seeded, 'category', 'c1');
+      let s = reducer(seeded, { type: 'DELETE_CATEGORY', payload: 'c1' });
+      s = reducer(s, { type: 'ADD_CATEGORY', payload: { id: 'c9', name: 'wh40k' } });
+      const restored = reducer(s, { type: 'RESTORE_ITEMS', payload: removed });
+      expect(restored.categories.map(c => c.id)).toEqual(['c2', 'c9']);
+      expect(restored.projects.map(p => p.id)).toEqual(['p2']);
+      expect(restored.models.map(m => m.id)).toEqual(['m2']);
+    });
+
+    it('still restores a project whose name matches one in another category', () => {
+      const removed = removedBy(seeded, 'project', 'p1');
+      let s = reducer(seeded, { type: 'DELETE_PROJECT', payload: 'p1' });
+      s = reducer(s, { type: 'ADD_PROJECT', payload: { id: 'p9', categoryId: 'c2', name: 'Marines' } });
+      expect(reducer(s, { type: 'RESTORE_ITEMS', payload: removed }).projects.map(p => p.id)).toEqual(['p1', 'p2', 'p9']);
+    });
+  });
+});
