@@ -49,7 +49,7 @@ export function ProjectList({
       <header className="flex flex-col md:flex-row md:items-center justify-between pb-3 border-b border-zinc-800 gap-4">
         <div>
           <h2 className="text-3xl font-bold text-zinc-100">{category.name}</h2>
-          <p className="text-zinc-400 mt-0.625">Manage your projects and models for this category.</p>
+          <p className="text-zinc-400 mt-0.625">Manage your projects and units for this category.</p>
         </div>
         
         <form onSubmit={handleAdd} className="flex gap-2">
@@ -97,7 +97,7 @@ export function ProjectList({
             <div className="flex items-center gap-6">
               <div className="flex flex-col items-end">
                 <span id={`progress-label-${project.id}`} className="text-xs text-zinc-400 mb-1">
-                  {progress.completedCount} / {progress.totalCount} Models Completed
+                  {progress.completedCount} / {progress.totalCount} Units Completed
                 </span>
                 <div
                   role="progressbar"

@@ -7,7 +7,7 @@ import { TOAST_MS, UndoToasts } from './UndoToasts';
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
-const toasts = [{ id: 't1', message: 'Deleted model "Captain".' }];
+const toasts = [{ id: 't1', message: 'Deleted unit "Captain".' }];
 const setup = () => {
   const onUndo = vi.fn();
   const onDismiss = vi.fn();
@@ -42,7 +42,7 @@ describe('UndoToasts', () => {
 
   it('pauses on hover and restarts on leave', () => {
     const { onDismiss } = setup();
-    const item = screen.getByText(/Deleted model/).parentElement!;
+    const item = screen.getByText(/Deleted unit/).parentElement!;
     wait(TOAST_MS - 100);
     fireEvent.mouseEnter(item);
     wait(TOAST_MS * 3);

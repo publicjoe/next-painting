@@ -26,7 +26,7 @@ function buildState(seed: Seed) {
     (seed.projects[c.name] ?? []).forEach((name, j) => {
       const id = `p-${c.id}-${j}`;
       projects.push({ id, categoryId: c.id, name });
-      models.push({ id: `m-${id}`, projectId: id, name: 'Model', count: 1, built: false, primed: false, painted: false, based: false });
+      models.push({ id: `m-${id}`, projectId: id, name: 'Unit', count: 1, built: false, primed: false, painted: false, based: false });
     });
   });
   return { version: 1, state: { categories, projects, models } };

@@ -62,11 +62,11 @@ describe('PaintLogApp', () => {
     expect(screen.getByLabelText('Project name: Tactical Squad')).toBeTruthy();
   });
 
-  it('adds a model', async () => {
+  it('adds a unit', async () => {
     await renderApp();
-    type('New model name', 'Librarian');
-    fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
-    expect(screen.getByRole('button', { name: 'Delete model Librarian' })).toBeTruthy();
+    type('New unit name', 'Librarian');
+    fireEvent.click(screen.getByRole('button', { name: 'Add Unit' }));
+    expect(screen.getByRole('button', { name: 'Delete unit Librarian' })).toBeTruthy();
   });
 
   it('toggles a status and updates progress', async () => {
@@ -74,16 +74,16 @@ describe('PaintLogApp', () => {
     const painted = screen.getByRole('checkbox', { name: /painted - captain/i }) as HTMLInputElement;
     const based = screen.getByRole('checkbox', { name: /based - captain/i }) as HTMLInputElement;
     expect(painted.checked).toBe(false);
-    expect(screen.getByText('0 / 1 Models Completed')).toBeTruthy();
-    // Progress counts a model only once every stage is ticked
+    expect(screen.getByText('0 / 1 Units Completed')).toBeTruthy();
+    // Progress counts a unit only once every stage is ticked
     fireEvent.click(screen.getByRole('checkbox', { name: /built - captain/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: /primed - captain/i }));
     fireEvent.click(painted);
     expect(painted.checked).toBe(true);
-    expect(screen.getByText('0 / 1 Models Completed')).toBeTruthy();
+    expect(screen.getByText('0 / 1 Units Completed')).toBeTruthy();
     fireEvent.click(based);
     expect(based.checked).toBe(true);
-    expect(screen.getByText('1 / 1 Models Completed')).toBeTruthy();
+    expect(screen.getByText('1 / 1 Units Completed')).toBeTruthy();
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100');
   });
 
@@ -218,21 +218,21 @@ describe('PaintLogApp', () => {
   describe('delete with undo', () => {
     const undoButton = () => screen.getByRole('button', { name: 'Undo' });
 
-    it('deletes a model at once (no native dialogs) and undoes it', async () => {
+    it('deletes a unit at once (no native dialogs) and undoes it', async () => {
       const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => false);
       await renderApp();
-      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }));
-      expect(screen.queryByRole('button', { name: 'Delete model Captain' })).toBeNull();
-      expect(screen.getByText('Deleted model "Captain".').closest('[role="status"]')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Delete unit Captain' }));
+      expect(screen.queryByRole('button', { name: 'Delete unit Captain' })).toBeNull();
+      expect(screen.getByText('Deleted unit "Captain".').closest('[role="status"]')).toBeTruthy();
       fireEvent.click(undoButton());
-      expect(screen.getByRole('button', { name: 'Delete model Captain' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Delete unit Captain' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
       expect(confirmSpy).not.toHaveBeenCalled();
     });
 
     it('moves focus to Undo after a delete, and to the main area when it is closed', async () => {
       await renderApp();
-      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete unit Captain' }));
       expect(document.activeElement).toBe(undoButton());
       fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
@@ -241,29 +241,29 @@ describe('PaintLogApp', () => {
 
     it('leaves focus alone when the delete was a mouse click', async () => {
       await renderApp();
-      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }), { detail: 1 });
+      fireEvent.click(screen.getByRole('button', { name: 'Delete unit Captain' }), { detail: 1 });
       expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
       expect(document.activeElement).not.toBe(undoButton());
     });
 
     it('returns focus to the main area after Undo', async () => {
       await renderApp();
-      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete unit Captain' }));
       fireEvent.click(undoButton());
       expect(document.activeElement).toBe(screen.getByRole('main'));
     });
 
-    it('deletes a project and its models, then restores both', async () => {
+    it('deletes a project and its units, then restores both', async () => {
       await renderApp();
       fireEvent.click(screen.getByRole('button', { name: 'Delete project Marines' }));
       expect(screen.queryByLabelText('Project name: Marines')).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Delete model Captain' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Delete unit Captain' })).toBeNull();
       fireEvent.click(undoButton());
       expect(screen.getByLabelText('Project name: Marines')).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Delete model Captain' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Delete unit Captain' })).toBeTruthy();
     });
 
-    it('deletes a category and restores it with its projects and models, selected again', async () => {
+    it('deletes a category and restores it with its projects and units, selected again', async () => {
       await renderApp();
       fireEvent.click(screen.getByRole('button', { name: 'Delete category WH40k' }));
       const nav = screen.getByRole('navigation', { name: 'Categories' });
@@ -273,24 +273,24 @@ describe('PaintLogApp', () => {
       expect(within(nav).getAllByRole('button', { name: /^(WH40k|D&D)$/ }).map(b => b.textContent)).toEqual(['WH40k', 'D&D']);
       expect(screen.getByRole('heading', { level: 2, name: 'WH40k' })).toBeTruthy();
       expect(screen.getByLabelText('Project name: Marines')).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Delete model Captain' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Delete unit Captain' })).toBeTruthy();
     });
 
     it('keeps a small stack: only the newest three toasts remain', async () => {
       await renderApp();
       for (const n of ['A', 'B', 'C', 'D']) {
-        type('New model name', n);
-        fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
-        fireEvent.click(screen.getByRole('button', { name: `Delete model ${n}` }));
+        type('New unit name', n);
+        fireEvent.click(screen.getByRole('button', { name: 'Add Unit' }));
+        fireEvent.click(screen.getByRole('button', { name: `Delete unit ${n}` }));
       }
       expect(screen.getAllByRole('button', { name: 'Undo' })).toHaveLength(3);
-      expect(screen.getByText('Deleted model "D".')).toBeTruthy();
-      expect(screen.queryByText('Deleted model "A".')).toBeNull();
+      expect(screen.getByText('Deleted unit "D".')).toBeTruthy();
+      expect(screen.queryByText('Deleted unit "A".')).toBeNull();
     });
 
     it('has no axe violations with a toast showing', async () => {
       await renderApp();
-      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete unit Captain' }));
       const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } }); // see note above
       expect(results.violations).toEqual([]);
     });
@@ -301,7 +301,7 @@ describe('PaintLogApp', () => {
     it('lists each category\'s projects underneath it with a completed count', async () => {
       await renderApp();
       const marines = within(within(nav()).getByRole('list', { name: 'Projects in WH40k' }));
-      expect(marines.getByRole('button', { name: 'Marines, 0 of 1 models completed' })).toBeTruthy();
+      expect(marines.getByRole('button', { name: 'Marines, 0 of 1 units completed' })).toBeTruthy();
       expect(marines.queryByText('Party')).toBeNull();
       expect(within(nav()).getByRole('list', { name: 'Projects in D&D' })).toBeTruthy();
     });
@@ -378,14 +378,14 @@ describe('PaintLogApp', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     };
 
-    it('renders a single model table, for the first project of the category', async () => {
+    it('renders a single unit table, for the first project of the category', async () => {
       await renderApp();
       addProject('Second Squad'); // WH40k now has two projects; creating selects the new one
       fireEvent.click(within(nav()).getByRole('button', { name: 'WH40k' }));
       expect(screen.getAllByRole('table')).toHaveLength(1);
       expect(screen.getByLabelText('Project name: Marines')).toBeTruthy();
       expect(screen.queryByLabelText('Project name: Second Squad')).toBeNull();
-      expect(screen.getByRole('button', { name: 'Delete model Captain' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Delete unit Captain' })).toBeTruthy();
     });
 
     it('swaps the table when another project is picked in the sidebar', async () => {
@@ -393,10 +393,10 @@ describe('PaintLogApp', () => {
       addProject('Second Squad');
       fireEvent.click(screen.getByRole('button', { name: /^Marines, / }));
       expect(screen.getAllByRole('table')).toHaveLength(1);
-      expect(screen.getByRole('button', { name: 'Delete model Captain' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Delete unit Captain' })).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: /^Second Squad, / }));
       expect(screen.getAllByRole('table')).toHaveLength(1);
-      expect(screen.queryByRole('button', { name: 'Delete model Captain' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Delete unit Captain' })).toBeNull();
       expect(screen.getByLabelText('Project name: Second Squad')).toBeTruthy();
     });
 
@@ -652,15 +652,15 @@ describe('PaintLogApp', () => {
       const real = Storage.prototype.setItem;
       const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('QuotaExceededError'); });
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      type('New model name', 'Librarian');
-      fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
+      type('New unit name', 'Librarian');
+      fireEvent.click(screen.getByRole('button', { name: 'Add Unit' }));
       act(() => { window.dispatchEvent(new Event('pagehide')); }); // flush without waiting for the debounce
       const alert = await screen.findByText(/Changes could not be saved/);
       expect(alert.closest('[role="alert"]')).toBeTruthy();
 
       spy.mockImplementation(function (this: Storage, k: string, v: string) { real.call(this, k, v); });
-      type('New model name', 'Chaplain');
-      fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
+      type('New unit name', 'Chaplain');
+      fireEvent.click(screen.getByRole('button', { name: 'Add Unit' }));
       act(() => { window.dispatchEvent(new Event('pagehide')); });
       await waitFor(() => expect(screen.queryByText(/Changes could not be saved/)).toBeNull());
     });
@@ -688,7 +688,7 @@ describe('PaintLogApp', () => {
   describe('undo toasts and import', () => {
     it('clears undo toasts once an import replaces the data', async () => {
       await renderApp();
-      fireEvent.click(screen.getByRole('button', { name: 'Delete model Captain' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete unit Captain' }));
       expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
       const file = new File(
         [JSON.stringify({ categories: [{ id: 'x1', name: 'Imported' }], projects: [], models: [] })],
@@ -795,8 +795,8 @@ describe('PaintLogApp', () => {
 
     it('shows a dismissible status banner when pending edits are dropped', async () => {
       await renderApp();
-      type('New model name', 'Librarian'); // pending: not yet past the debounce
-      fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
+      type('New unit name', 'Librarian'); // pending: not yet past the debounce
+      fireEvent.click(screen.getByRole('button', { name: 'Add Unit' }));
       fireStorage(JSON.stringify(other));
       expect(screen.getByRole('heading', { level: 2, name: 'Other tab' })).toBeTruthy();
       const banner = screen.getByText(/unsaved edits in this tab were replaced/).closest('[role="status"]') as HTMLElement;
@@ -814,8 +814,8 @@ describe('PaintLogApp', () => {
 
     it('has no axe violations with the banner showing', async () => {
       await renderApp();
-      type('New model name', 'Librarian');
-      fireEvent.click(screen.getByRole('button', { name: 'Add Model' }));
+      type('New unit name', 'Librarian');
+      fireEvent.click(screen.getByRole('button', { name: 'Add Unit' }));
       fireStorage(JSON.stringify(other));
       const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } }); // see note above
       expect(results.violations).toEqual([]);

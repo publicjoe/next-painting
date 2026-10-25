@@ -21,7 +21,7 @@ interface StatusCheckboxProps {
   onToggle: (id: string, field: StatusField) => void;
 }
 
-// Status cells are tinted green when ticked and red when not. A model with every
+// Status cells are tinted green when ticked and red when not. A unit with every
 // stage ticked is complete, and its whole row is tinted green.
 const GREEN = 'bg-green-600/40';
 const statusCellClass = (ticked: boolean) =>
@@ -160,7 +160,7 @@ export function ModelTable({
         <table className="w-full text-left text-sm text-zinc-400">
           <thead className="text-xs uppercase bg-zinc-800/80 text-zinc-300">
             <tr>
-              <th className="w-full px-4 py-1.5 font-medium">Model Name</th>
+              <th className="w-full px-4 py-1.5 font-medium">Unit Name</th>
               <th className="px-4 py-1.5 font-medium text-center w-16">Count</th>
               <th className="px-4 py-1.5 font-medium text-center w-20">Built</th>
               <th className="px-4 py-1.5 font-medium text-center w-20">Primed</th>
@@ -193,9 +193,9 @@ export function ModelTable({
                   <button
                     type="button"
                     onClick={() => onDeleteModel(model.id)}
-                    aria-label={`Delete model ${model.name}`}
+                    aria-label={`Delete unit ${model.name}`}
                     className="text-zinc-400 hover:text-red-400 p-1 transition-colors rounded-full hover:bg-zinc-700"
-                    title="Delete Model"
+                    title="Delete Unit"
                   >
                     <TrashIcon />
                   </button>
@@ -205,7 +205,7 @@ export function ModelTable({
             {models.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-zinc-400 italic">
-                  No models in this project yet.
+                  No units in this project yet.
                 </td>
               </tr>
             )}
@@ -213,13 +213,13 @@ export function ModelTable({
         </table>
       </div>
       
-      {/* Add New Model Form */}
+      {/* Add New Unit Form */}
       <form onSubmit={handleAdd} className="mt-4 flex gap-3 px-4">
         <input
           type="text"
           className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-100 text-sm rounded-lg focus:border-blue-500 block p-2.5 placeholder:text-zinc-400"
-          aria-label="New model name"
-          placeholder="New model name..."
+          aria-label="New unit name"
+          placeholder="New unit name..."
           value={newModelName}
           onChange={(e) => setNewModelName(e.target.value)}
         />
@@ -228,7 +228,7 @@ export function ModelTable({
           disabled={!newModelName.trim()}
           className="bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white font-medium rounded-lg text-sm px-5 py-2.5 transition-colors shadow-lg shadow-blue-500/20"
         >
-          Add Model
+          Add Unit
         </button>
       </form>
     </div>

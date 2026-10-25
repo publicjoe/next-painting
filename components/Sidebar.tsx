@@ -618,7 +618,7 @@ export function Sidebar({
                             }`}
                           >
                             <span className="min-w-0 truncate">{project.name}</span>
-                            <span className="sr-only">{`, ${completedCount} of ${totalCount} models completed`}</span>
+                            <span className="sr-only">{`, ${completedCount} of ${totalCount} units completed`}</span>
                             <span className={`shrink-0 text-xs ${isSelected ? 'text-zinc-100' : 'text-zinc-400'}`} aria-hidden="true">
                               {completedCount}/{totalCount}
                             </span>

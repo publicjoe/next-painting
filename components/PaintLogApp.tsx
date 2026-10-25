@@ -150,7 +150,7 @@ export default function PaintLogApp() {
   const handleDeleteCategory = (id: string) => {
     const cat = state.categories.find(c => c.id === id);
     if (!cat) return;
-    deleteWithUndo('category', id, `Deleted category "${cat.name}" and its projects and models.`, { type: 'DELETE_CATEGORY', payload: id });
+    deleteWithUndo('category', id, `Deleted category "${cat.name}" and its projects and units.`, { type: 'DELETE_CATEGORY', payload: id });
     if (selectedCategoryId === id) setSelectedCategoryId(null);
     if (selectedCategory?.id === id) setSelectedProjectId(null); // a project of another category stays chosen
   };
@@ -158,13 +158,13 @@ export default function PaintLogApp() {
   const handleDeleteProject = (id: string) => {
     const project = state.projects.find(p => p.id === id);
     if (!project) return;
-    deleteWithUndo('project', id, `Deleted project "${project.name}" and its models.`, { type: 'DELETE_PROJECT', payload: id });
+    deleteWithUndo('project', id, `Deleted project "${project.name}" and its units.`, { type: 'DELETE_PROJECT', payload: id });
   };
 
   const handleDeleteModel = (id: string) => {
     const model = state.models.find(m => m.id === id);
     if (!model) return;
-    deleteWithUndo('model', id, `Deleted model "${model.name}".`, { type: 'DELETE_MODEL', payload: id });
+    deleteWithUndo('model', id, `Deleted unit "${model.name}".`, { type: 'DELETE_MODEL', payload: id });
   };
 
   const confirmImport = () => {
@@ -340,7 +340,7 @@ export default function PaintLogApp() {
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold">3</span>
-                    <span>Add your <strong>Models</strong> to the project and track their status!</span>
+                    <span>Add your <strong>Units</strong> to the project and track their status!</span>
                   </li>
                 </ul>
               </div>
@@ -373,7 +373,7 @@ export default function PaintLogApp() {
         <ConfirmDialog
           title="Replace all data?"
           description={
-            'Importing replaces all current categories, projects and models. A copy of your current data is kept in browser storage first, when it allows.' +
+            'Importing replaces all current categories, projects and units. A copy of your current data is kept in browser storage first, when it allows.' +
             (pendingImport.adjusted ? ' Some counts or names in the file are over the limits and will be shortened.' : '')
           }
           confirmLabel="Replace data"

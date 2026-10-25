@@ -1,6 +1,6 @@
 # PaintLog
 
-A tracker for tabletop miniature painting projects. Organise models into
+A tracker for tabletop miniature painting projects. Organise units into
 categories and projects, then tick off built, primed, painted and based. Data
 lives in your browser's `localStorage`, so there is no backend or database. You
 can export and import everything as JSON.
@@ -37,7 +37,7 @@ CI also runs `npx next typegen && npx tsc --noEmit` before the tests.
 | `app/` | Routes. `layout.tsx` and `page.tsx` are Server Components, `error.tsx` is the error boundary, `icon.svg` is the favicon |
 | `components/` | `PaintLogApp.tsx` is the single `'use client'` boundary; `Sidebar`, `ProjectList`, `ModelTable` and `InlineEditText` sit beneath it, with `ConfirmDialog` (native `<dialog>`), `UndoToasts` (delete undo) and `icons.tsx` shared between them |
 | `hooks/` | `usePaintingLog.ts`: reducer plus persistence (debounced saves, multi-tab sync) |
-| `lib/` | Pure logic: `state.ts` (reducer), `validate.ts` (`isAppState`), `migrate.ts` (storage versions), `progress.ts` (a model is "completed" once built, primed, painted and based are all ticked), `backup.ts` (never-overwrite backups), `id.ts` |
+| `lib/` | Pure logic: `state.ts` (reducer), `validate.ts` (`isAppState`), `migrate.ts` (storage versions), `progress.ts` (a unit is "completed" once built, primed, painted and based are all ticked), `backup.ts` (never-overwrite backups), `id.ts` |
 | `types/` | Shared TypeScript types |
 | `e2e/` | Playwright browser tests: smoke checks and sidebar drag-and-drop |
 | `docs/` | [nextjs-notes.md](docs/nextjs-notes.md): server vs client components, hydration, routing |
@@ -62,16 +62,17 @@ State is stored under the `painting-log-state` key as a versioned envelope:
 }
 ```
 
+- The `models` key holds the units shown in the app. The storage name is unchanged so that saved and exported data keeps working.
 - Reordering: drag a category or project by its grip handle, or use the Move button on its row (Move up, Move down, Move to another category). There is no order field: the order of `categories` and `projects` in storage is the display order, and the exported `state` keeps that array order.
 - Any change to the stored shape must bump `STORAGE_VERSION` in `lib/migrate.ts`. Loading drops unknown properties, so an older build that read newer data with the same version would lose the extra fields on its next save. A new version makes older builds refuse the data instead.
 - `lib/migrate.ts` reads the current envelope and the legacy unversioned shape
   (a bare `state` object), which is re-saved as v1. Unknown versions are
   rejected rather than guessed at.
 - `lib/validate.ts` checks every item and its references (unique ids, no
-  orphaned projects or models) before data is accepted from storage, another tab
+  orphaned projects or units) before data is accepted from storage, another tab
   or an imported file.
 - Unreadable stored data is copied to `painting-log-state.bak` (or `.bak.2` and so on, so an earlier copy is never overwritten) and the stored data is left alone until you confirm "Start fresh".
-- Limits: a model's count is 1 to 199 and a name is up to 120 characters. Data
+- Limits: a unit's count is 1 to 199 and a name is up to 120 characters. Data
   saved before the limits existed is lowered or shortened on load or import, with
   a notice, and a raw copy is kept first. Unknown properties are dropped.
 - Importing a file keeps a copy of your current data in browser storage first (when

@@ -91,7 +91,7 @@ describe('Sidebar', () => {
 
     it('keeps the project name button and its progress text as before', () => {
       render3({ selectedProjectId: 'p1' });
-      const name = screen.getByRole('button', { name: /^Intercessors, 0 of 0 models completed$/ });
+      const name = screen.getByRole('button', { name: /^Intercessors, 0 of 0 units completed$/ });
       expect(name.getAttribute('aria-current')).toBe('true');
     });
 

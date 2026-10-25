@@ -35,12 +35,12 @@ test('the page has one h1, and the selected project button is named with its pro
   await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
   await expect(page.getByRole('heading', { level: 1, name: 'Painting Log' })).toBeVisible();
   // Captain (1) is finished; Librarian (2) and Scout (5) are not: 1 of 8
-  await expect(page.getByRole('button', { name: /^Marines/ })).toHaveAccessibleName(/^Marines.*1 of 8 models completed/);
+  await expect(page.getByRole('button', { name: /^Marines/ })).toHaveAccessibleName(/^Marines.*1 of 8 units completed/);
 });
 
 test('a keyboard delete puts focus on Undo, and Dismiss hands it to the main area', async ({ page }) => {
   await seed(page, JSON.stringify({ version: 1, state }));
-  await page.getByRole('button', { name: 'Delete model Scout' }).focus();
+  await page.getByRole('button', { name: 'Delete unit Scout' }).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button', { name: 'Undo' })).toBeFocused();
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
