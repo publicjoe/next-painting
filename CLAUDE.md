@@ -20,7 +20,7 @@ Always run a QA review of the changes before staging them, even if the user only
 
 ## About the project and the owner
 
-PaintLog is a client-side tabletop miniature painting tracker built with Next.js (App Router). The owner is new to Next.js and is learning from this project, so explain framework concepts briefly when a change touches them.
+PaintLog is a client-side tabletop miniature painting tracker built with Next.js (App Router). The owner is using this project to expand knowledge of Next.js and Claude, so explain framework concepts briefly when a change touches them.
 
 - **Workflow:** one branch per change, then a pull request to `main` using the `gh` CLI. Claude does not push or open a PR until asked, and does not commit.
 - **`main` is protected:** it needs the five CI checks to pass (Dependency audit, Lint and types, Unit tests (Vitest), Production build, Browser tests (Playwright)). Dependabot is switched off.

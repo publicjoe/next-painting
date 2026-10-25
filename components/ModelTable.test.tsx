@@ -48,7 +48,7 @@ describe('ModelTable status colours', () => {
     setup([model(done)]);
     expect(screen.getByLabelText('Name of Captain').closest('td')!.className).toContain('bg-green-600/40');
     expect(screen.getByLabelText('Count for Captain').closest('td')!.className).toContain('bg-green-600/40');
-    expect(screen.getByRole('button', { name: 'Delete model Captain' }).closest('td')!.className).toContain('bg-green-600/40');
+    expect(screen.getByRole('button', { name: 'Delete unit Captain' }).closest('td')!.className).toContain('bg-green-600/40');
   });
 
   it('keeps a light checkbox border so the box stands out from either tint', () => {
