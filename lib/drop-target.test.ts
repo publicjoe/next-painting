@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { resolveCategoryDrop, resolveProjectDrop } from './drop-target';
-import type { Category, Project } from '@/types';
+import { resolveCategoryDrop, resolveProjectDrop, resolveUnitDrop } from './drop-target';
+import type { Category, Model, Project } from '@/types';
 
 const p = (id: string, categoryId: string): Project => ({ id, categoryId, name: id });
 const cats: Category[] = ['c1', 'c2', 'c3'].map(id => ({ id, name: id }));
@@ -85,5 +85,69 @@ describe('resolveCategoryDrop', () => {
   it('returns null for missing ids', () => {
     expect(resolveCategoryDrop(cats, 'nope', 'c1', false)).toBeNull();
     expect(resolveCategoryDrop(cats, 'c1', 'nope', false)).toBeNull();
+  });
+});
+
+describe('resolveUnitDrop', () => {
+  const u = (id: string, projectId: string): Model => ({ id, projectId, name: id, count: 1, built: false, primed: false, painted: false, based: false });
+  const unitProjects: Project[] = [p('pa', 'c1'), p('pb', 'c1'), p('pe', 'c2')];
+  // pa: a b c   pb: d e   pe: empty. Interleaved, so the flat array is not grouped.
+  const units = [u('a', 'pa'), u('d', 'pb'), u('b', 'pa'), u('e', 'pb'), u('c', 'pa')];
+  const unit = (id: string) => ({ kind: 'unit' as const, id });
+  const onProject = (id: string) => ({ kind: 'proj' as const, id });
+
+  it('drops before or after a unit in the same project, counting the dragged unit as removed', () => {
+    expect(resolveUnitDrop(units, unitProjects, 'a', unit('c'), false)).toEqual({ toProjectId: 'pa', toIndexInProject: 1 });
+    expect(resolveUnitDrop(units, unitProjects, 'a', unit('c'), true)).toEqual({ toProjectId: 'pa', toIndexInProject: 2 });
+    expect(resolveUnitDrop(units, unitProjects, 'c', unit('a'), false)).toEqual({ toProjectId: 'pa', toIndexInProject: 0 });
+    expect(resolveUnitDrop(units, unitProjects, 'c', unit('a'), true)).toEqual({ toProjectId: 'pa', toIndexInProject: 1 });
+  });
+
+  it('drops before or after a unit in another project', () => {
+    expect(resolveUnitDrop(units, unitProjects, 'a', unit('e'), false)).toEqual({ toProjectId: 'pb', toIndexInProject: 1 });
+    expect(resolveUnitDrop(units, unitProjects, 'a', unit('e'), true)).toEqual({ toProjectId: 'pb', toIndexInProject: 2 });
+  });
+
+  it('appends to the end of a project dropped on in the sidebar, whichever half', () => {
+    expect(resolveUnitDrop(units, unitProjects, 'a', onProject('pb'), false)).toEqual({ toProjectId: 'pb', toIndexInProject: 2 });
+    expect(resolveUnitDrop(units, unitProjects, 'a', onProject('pb'), true)).toEqual({ toProjectId: 'pb', toIndexInProject: 2 });
+    expect(resolveUnitDrop(units, unitProjects, 'a', onProject('pa'), false)).toEqual({ toProjectId: 'pa', toIndexInProject: 2 });
+  });
+
+  it('takes the unit table of an empty project at index 0', () => {
+    expect(resolveUnitDrop(units, unitProjects, 'a', { kind: 'ulist', id: 'pe' }, false)).toEqual({ toProjectId: 'pe', toIndexInProject: 0 });
+    expect(resolveUnitDrop(units, unitProjects, 'a', onProject('pe'), false)).toEqual({ toProjectId: 'pe', toIndexInProject: 0 });
+  });
+
+  it('returns null when nothing would change', () => {
+    expect(resolveUnitDrop(units, unitProjects, 'b', unit('b'), false)).toBeNull();
+    expect(resolveUnitDrop(units, unitProjects, 'b', unit('c'), false)).toBeNull(); // already before c
+    expect(resolveUnitDrop(units, unitProjects, 'b', unit('a'), true)).toBeNull(); // already after a
+    expect(resolveUnitDrop(units, unitProjects, 'c', onProject('pa'), false)).toBeNull(); // already last
+    expect(resolveUnitDrop(units, unitProjects, 'c', { kind: 'ulist', id: 'pa' }, false)).toBeNull();
+  });
+
+  it('is not a drop on a category header, list, category or project list', () => {
+    for (const kind of ['hdr', 'list', 'cat'] as const) {
+      expect(resolveUnitDrop(units, unitProjects, 'a', { kind, id: 'c2' }, false)).toBeNull();
+    }
+  });
+
+  it('returns null for missing ids and unknown projects', () => {
+    expect(resolveUnitDrop(units, unitProjects, 'zzz', unit('a'), false)).toBeNull();
+    expect(resolveUnitDrop(units, unitProjects, 'a', unit('zzz'), false)).toBeNull();
+    expect(resolveUnitDrop(units, unitProjects, 'a', onProject('zzz'), false)).toBeNull();
+    expect(resolveUnitDrop(units, unitProjects, 'a', { kind: 'ulist', id: 'zzz' }, false)).toBeNull();
+    // A unit whose own project is gone cannot be a target
+    expect(resolveUnitDrop([...units, u('orphan', 'gone')], unitProjects, 'a', unit('orphan'), false)).toBeNull();
+  });
+
+  it('is safe with the id __proto__', () => {
+    const odd = [u('__proto__', '__proto__'), u('x', '__proto__')];
+    const oddProjects = [p('__proto__', 'c1')];
+    expect(resolveUnitDrop(odd, oddProjects, '__proto__', unit('x'), true)).toEqual({ toProjectId: '__proto__', toIndexInProject: 1 });
+    expect(resolveUnitDrop(odd, oddProjects, 'x', unit('__proto__'), false)).toEqual({ toProjectId: '__proto__', toIndexInProject: 0 });
+    expect(resolveUnitDrop(odd, oddProjects, '__proto__', onProject('__proto__'), false)).toEqual({ toProjectId: '__proto__', toIndexInProject: 1 });
+    expect(resolveUnitDrop(odd, oddProjects, 'x', onProject('__proto__'), false)).toBeNull(); // x is already last
   });
 });

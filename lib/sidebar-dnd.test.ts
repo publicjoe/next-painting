@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Model } from '@/types';
 import type { Active, Over } from '@dnd-kit/core';
 import { createAnnouncer, detectCollisions, keyboardScrollBehavior, keyboardSlots, pointerDrop, resolveDrop, screenReaderInstructions, stepKeyboardDrop, type Drop } from './sidebar-dnd';
 
@@ -246,5 +247,232 @@ describe('keyboardScrollBehavior', () => {
 describe('screenReaderInstructions', () => {
   it('says that Escape and Tab cancel', () => {
     expect(screenReaderInstructions.draggable).toMatch(/Escape or Tab to cancel/);
+  });
+});
+
+describe('unit drags', () => {
+  const unitModel = (id: string, projectId: string): Model => ({ id, projectId, name: `Unit ${id}`, count: 1, built: false, primed: false, painted: false, based: false });
+  // p1 (Intercessors): m1 m2 m3   p2 (Hellblasters): none   p3 (Boyz): m4
+  const models = [unitModel('m1', 'p1'), unitModel('m2', 'p1'), unitModel('m3', 'p1'), unitModel('m4', 'p3')];
+  const unit = (id: string) => ({ kind: 'unit' as const, id });
+  const onUnit = (id: string, after: boolean): Drop => ({ over: unit(id), after });
+  const onProj = (id: string): Drop => ({ over: proj(id), after: false });
+
+  describe('resolveDrop', () => {
+    it('resolves a unit drop to MOVE_MODEL arguments', () => {
+      expect(resolveDrop(categories, projects, unit('m1'), onUnit('m3', true), models)).toEqual({ kind: 'unit', toProjectId: 'p1', toIndexInProject: 2 });
+      expect(resolveDrop(categories, projects, unit('m1'), onProj('p3'), models)).toEqual({ kind: 'unit', toProjectId: 'p3', toIndexInProject: 1 });
+      expect(resolveDrop(categories, projects, unit('m1'), onProj('p2'), models)).toEqual({ kind: 'unit', toProjectId: 'p2', toIndexInProject: 0 });
+    });
+
+    it('makes no move for categories, headers, lists or the unit’s own place', () => {
+      expect(resolveDrop(categories, projects, unit('m1'), { over: cat('c2'), after: false }, models)).toBeNull();
+      expect(resolveDrop(categories, projects, unit('m1'), { over: { kind: 'hdr', id: 'c2' }, after: false }, models)).toBeNull();
+      expect(resolveDrop(categories, projects, unit('m1'), { over: { kind: 'list', id: 'c2' }, after: false }, models)).toBeNull();
+      expect(resolveDrop(categories, projects, unit('m1'), onUnit('m2', false), models)).toBeNull();
+      expect(resolveDrop(categories, projects, unit('m1'), null, models)).toBeNull();
+    });
+
+    it('does not let a unit drop resolve a project or category drag', () => {
+      expect(resolveDrop(categories, projects, proj('p1'), onUnit('m3', true), models)).toBeNull();
+      expect(resolveDrop(categories, projects, cat('c1'), onUnit('m3', true), models)).toBeNull();
+    });
+  });
+
+  describe('keyboardSlots', () => {
+    it('lists the other units of its project, then every project in the sidebar in order', () => {
+      expect(keyboardSlots(categories, projects, unit('m2'), allOpen, models)).toEqual([
+        { over: unit('m1'), after: false },
+        { over: unit('m3'), after: false },
+        { over: unit('m3'), after: true },
+        onProj('p1'), onProj('p2'), onProj('p3'),
+      ]);
+    });
+
+    it('uses the unit’s own table when it is the only unit', () => {
+      expect(keyboardSlots(categories, projects, unit('m4'), allOpen, models)).toEqual([
+        { over: { kind: 'ulist', id: 'p3' }, after: false },
+        onProj('p1'), onProj('p2'), onProj('p3'),
+      ]);
+    });
+
+    it('stops at the header of a closed category with projects, and skips one without', () => {
+      const isOpen = (id: string) => id !== 'c1';
+      expect(keyboardSlots(categories, projects, unit('m4'), isOpen, models)).toEqual([
+        { over: { kind: 'ulist', id: 'p3' }, after: false },
+        { over: { kind: 'hdr', id: 'c1' }, after: false },
+        onProj('p3'),
+      ]);
+    });
+  });
+
+  describe('stepKeyboardDrop', () => {
+    it('starts on the unit’s own place and steps through the table, then the sidebar', () => {
+      const dropAt = (d: Drop | null) => resolveDrop(categories, projects, unit('m2'), d, models);
+      const start = stepKeyboardDrop(categories, projects, unit('m2'), allOpen, null, 0, models);
+      expect(dropAt(start)).toBeNull();
+      let drop: Drop | null = start;
+      const seen: unknown[] = [];
+      for (let i = 0; i < 6; i++) {
+        drop = stepKeyboardDrop(categories, projects, unit('m2'), allOpen, drop, 1, models);
+        seen.push(dropAt(drop));
+      }
+      expect(seen).toEqual([
+        { kind: 'unit', toProjectId: 'p1', toIndexInProject: 2 }, // after m3
+        { kind: 'unit', toProjectId: 'p1', toIndexInProject: 2 }, // the end of its own project, from the sidebar
+        { kind: 'unit', toProjectId: 'p2', toIndexInProject: 0 },
+        { kind: 'unit', toProjectId: 'p3', toIndexInProject: 1 },
+        { kind: 'unit', toProjectId: 'p3', toIndexInProject: 1 }, // stops at the last slot
+        { kind: 'unit', toProjectId: 'p3', toIndexInProject: 1 },
+      ]);
+      // And back up to where it started
+      let up: Drop | null = drop;
+      for (let i = 0; i < 6; i++) up = stepKeyboardDrop(categories, projects, unit('m2'), allOpen, up, -1, models);
+      expect(dropAt(up)).toEqual({ kind: 'unit', toProjectId: 'p1', toIndexInProject: 0 });
+    });
+
+    it('rests on a closed header with no move, and lands on its first project once it opens', () => {
+      const closed = (id: string) => id !== 'c2';
+      const onHeader = stepKeyboardDrop(categories, projects, unit('m1'), closed, { over: proj('p2'), after: false }, 1, models);
+      expect(onHeader).toEqual({ over: { kind: 'hdr', id: 'c2' }, after: false });
+      expect(resolveDrop(categories, projects, unit('m1'), onHeader, models)).toBeNull();
+      // c2 has opened: its header slot is gone, and the step re-finds its first project (Boyz)
+      const opened = stepKeyboardDrop(categories, projects, unit('m1'), allOpen, onHeader, 0, models);
+      expect(opened).toEqual(onProj('p3'));
+    });
+  });
+
+  describe('pointerDrop', () => {
+    it('sets after from the pointer for a unit row', () => {
+      const pointerDown = { clientX: 10, clientY: 110 } as unknown as Event;
+      const moved = { initial: { top: 100 }, translated: { top: 300 } }; // pointer at 310
+      expect(pointerDrop({ id: 'unit:m1', rect: { top: 305, height: 20 } }, pointerDown, moved)).toEqual({ over: unit('m1'), after: false });
+      expect(pointerDrop({ id: 'unit:m1', rect: { top: 285, height: 20 } }, pointerDown, moved)).toEqual({ over: unit('m1'), after: true });
+      expect(pointerDrop({ id: 'ulist:p2', rect: { top: 285, height: 20 } }, pointerDown, moved)).toEqual({ over: { kind: 'ulist', id: 'p2' }, after: false });
+    });
+  });
+
+  describe('detectCollisions', () => {
+    const rect = (top: number, height = 20) => ({ top, left: 0, width: 200, height, bottom: top + height, right: 200 });
+    const container = (id: string, top: number, height = 20, data: Record<string, unknown> = {}) => ({
+      id, key: id, disabled: false, data: { current: data }, node: { current: null }, rect: { current: rect(top, height) },
+    });
+    // The unit table (ulist:p1 with three rows) and an empty project's table sit in the main area;
+    // the sidebar is the proj, hdr, list and cat entries
+    const layout = [
+      container('ulist:p1', 300, 100),
+      container('unit:m1', 320, 20, { projectId: 'p1' }),
+      container('unit:m2', 340, 20, { projectId: 'p1' }),
+      container('unit:m3', 360, 20, { projectId: 'p1' }),
+      container('ulist:p2', 500, 40),
+      container('cat:c1', 0, 30),
+      container('list:c1', 30, 60),
+      container('proj:p1', 30, 20, { categoryId: 'c1' }),
+      container('proj:p2', 60, 20, { categoryId: 'c1' }),
+      container('hdr:c2', 100, 30),
+      container('cat:c2', 100, 30),
+    ];
+    const run = (activeId: string, pointerY: number | null, keyboardDrop: Drop | null = null, x = 100) =>
+      detectCollisions({
+        active: { id: activeId, data: { current: undefined }, rect: { current: { initial: null, translated: null } } },
+        collisionRect: rect((pointerY ?? 10) - 10),
+        droppableRects: new Map(layout.map(c => [c.id, c.rect.current])),
+        droppableContainers: layout,
+        pointerCoordinates: pointerY === null ? null : { x, y: pointerY },
+      } as unknown as Parameters<typeof detectCollisions>[0], keyboardDrop).map(c => c.id);
+
+    it('lets a unit hit a unit row, a sidebar project row, or a closed header', () => {
+      expect(run('unit:m1', 345)).toEqual(['unit:m2']);
+      expect(run('unit:m1', 65)).toEqual(['proj:p2']);
+      expect(run('unit:m1', 110)).toEqual(['hdr:c2']);
+    });
+
+    it('lands a pointer in the table between or beside rows on the nearest row of that table', () => {
+      expect(run('unit:m1', 390)[0]).toBe('unit:m3');
+      expect(run('unit:m1', 305)[0]).toBe('unit:m1');
+    });
+
+    it('takes the unit table of an empty project', () => {
+      expect(run('unit:m1', 520)).toEqual(['ulist:p2']);
+    });
+
+    it('hits nothing when released over no unit target, so it cannot land somewhere by accident', () => {
+      expect(run('unit:m1', 250)).toEqual([]);
+      // A category list or category row is not a unit target
+      expect(run('unit:m1', 85)).toEqual([]);
+    });
+
+    it('never lets a project or category drag hit a unit row or a unit table', () => {
+      for (const y of [310, 345, 390, 520]) {
+        expect(run('proj:p9', y).filter(id => /^(unit|ulist):/.test(String(id)))).toEqual([]);
+        expect(run('cat:c9', y).filter(id => /^(unit|ulist):/.test(String(id)))).toEqual([]);
+      }
+    });
+
+    it('hits exactly the keyboard drop for a unit, and nothing for a missing one', () => {
+      expect(run('unit:m1', null, onUnit('m3', true))).toEqual(['unit:m3']);
+      expect(run('unit:m1', null, { over: { kind: 'ulist', id: 'p2' }, after: false })).toEqual(['ulist:p2']);
+      expect(run('unit:m1', null, onProj('p2'))).toEqual(['proj:p2']);
+      expect(run('unit:m1', null, onUnit('gone', false))).toEqual([]);
+    });
+  });
+
+  describe('announcements', () => {
+    const active = (id: string) => ({ id, data: { current: undefined }, rect: { current: { initial: null, translated: null } } }) as unknown as Active;
+    const over = (id: string) => ({ id, rect: { left: 0, top: 0, width: 0, height: 0 }, disabled: false, data: { current: undefined } }) as unknown as Over;
+    const setupAnnouncements = (drop: Drop | null = null) => ({ ctx: { categories, projects, models, drop }, a: createAnnouncer() });
+    const ids = /unit:|proj:|ulist:|\bp[123]\b/;
+
+    it('names the unit and its place when it is picked up', () => {
+      const { a, ctx } = setupAnnouncements();
+      expect(a.onDragStart(ctx, { active: active('unit:m2') })).toBe('Picked up unit "Unit m2" in project "Intercessors", position 2 of 3.');
+    });
+
+    it('names the destination project and position while over a target, once per change', () => {
+      const { a, ctx } = setupAnnouncements();
+      a.onDragStart(ctx, { active: active('unit:m1') });
+      ctx.drop = onProj('p3');
+      const text = a.onDragOver(ctx, { active: active('unit:m1'), over: over('proj:p3') });
+      expect(text).toBe('Unit "Unit m1" will move to project "Boyz", position 2 of 2.');
+      expect(a.onDragMove(ctx, { active: active('unit:m1'), over: over('proj:p3') })).toBeUndefined();
+      expect(text).not.toMatch(ids);
+    });
+
+    it('says when a unit is over nothing, or back at its original place', () => {
+      const { a, ctx } = setupAnnouncements();
+      a.onDragStart(ctx, { active: active('unit:m1') });
+      ctx.drop = onProj('p2');
+      a.onDragOver(ctx, { active: active('unit:m1'), over: over('proj:p2') });
+      ctx.drop = onUnit('m2', false);
+      expect(a.onDragOver(ctx, { active: active('unit:m1'), over: over('unit:m2') })).toBe('Unit "Unit m1" is back at its original position.');
+      ctx.drop = null;
+      expect(a.onDragOver(ctx, { active: active('unit:m1'), over: null })).toBe('Unit "Unit m1" is not over a drop position.');
+    });
+
+    it('announces a drop and a cancel by name', () => {
+      const { a, ctx } = setupAnnouncements(onUnit('m3', true));
+      expect(a.onDragEnd(ctx, { active: active('unit:m1'), over: over('unit:m3') })).toBe('Moved unit "Unit m1" to project "Intercessors", position 3 of 3.');
+      ctx.drop = onProj('p2');
+      expect(a.onDragEnd(ctx, { active: active('unit:m1'), over: over('proj:p2') })).toBe('Moved unit "Unit m1" to project "Hellblasters", position 1 of 1.');
+      expect(a.onDragEnd({ ...ctx, cancelled: true }, { active: active('unit:m1'), over: over('proj:p2') })).toBe(
+        'Moving unit "Unit m1" was cancelled. It stays in project "Intercessors", position 1 of 3.',
+      );
+      expect(a.onDragCancel(ctx, { active: active('unit:m1'), over: null })).toBe(
+        'Moving unit "Unit m1" was cancelled. It stays in project "Intercessors", position 1 of 3.',
+      );
+    });
+
+    it('never speaks a raw id, even for a unit that has gone', () => {
+      const { a, ctx } = setupAnnouncements();
+      for (const t of [a.onDragStart(ctx, { active: active('unit:gone') }), a.onDragCancel(ctx, { active: active('unit:gone'), over: null }), a.onDragEnd(ctx, { active: active('unit:gone'), over: null })]) {
+        expect(t).toBeTruthy();
+        expect(t).not.toMatch(/gone|unit:/);
+      }
+    });
+
+    it('still works for project drags when the context has no units', () => {
+      const a = createAnnouncer();
+      expect(a.onDragStart({ categories, projects, drop: null }, { active: active('proj:p1') })).toBe('Picked up project "Intercessors" in category "Space Marines", position 1 of 2.');
+    });
   });
 });

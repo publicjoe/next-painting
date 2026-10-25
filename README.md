@@ -35,11 +35,11 @@ CI also runs `npx next typegen && npx tsc --noEmit` before the tests.
 | Path | Role |
 | --- | --- |
 | `app/` | Routes. `layout.tsx` and `page.tsx` are Server Components, `error.tsx` is the error boundary, `icon.svg` is the favicon |
-| `components/` | `PaintLogApp.tsx` is the single `'use client'` boundary; `Sidebar`, `ProjectList`, `ModelTable` and `InlineEditText` sit beneath it, with `ConfirmDialog` (native `<dialog>`), `UndoToasts` (delete undo) and `icons.tsx` shared between them |
+| `components/` | `PaintLogApp.tsx` is the single `'use client'` boundary; `PaintDndProvider` (the one drag and drop context for the sidebar and the unit table), `Sidebar`, `ProjectList`, `ModelTable` and `InlineEditText` sit beneath it, with `ConfirmDialog` (native `<dialog>`), `UndoToasts` (delete undo) and `icons.tsx` shared between them |
 | `hooks/` | `usePaintingLog.ts`: reducer plus persistence (debounced saves, multi-tab sync) |
 | `lib/` | Pure logic: `state.ts` (reducer), `validate.ts` (`isAppState`), `migrate.ts` (storage versions), `progress.ts` (a unit is "completed" once built, primed, painted and based are all ticked), `backup.ts` (never-overwrite backups), `id.ts` |
 | `types/` | Shared TypeScript types |
-| `e2e/` | Playwright browser tests: smoke checks and sidebar drag-and-drop |
+| `e2e/` | Playwright browser tests: smoke checks, sidebar drag-and-drop and unit drag-and-drop |
 | `docs/` | [nextjs-notes.md](docs/nextjs-notes.md): server vs client components, hydration, routing |
 
 Unit and component tests sit beside the code they cover (`*.test.ts`, `*.test.tsx`).
@@ -64,6 +64,7 @@ State is stored under the `painting-log-state` key as a versioned envelope:
 
 - The `models` key holds the units shown in the app. The storage name is unchanged so that saved and exported data keeps working.
 - Reordering: drag a category or project by its grip handle, or use the Move button on its row (Move up, Move down, Move to another category). There is no order field: the order of `categories` and `projects` in storage is the display order, and the exported `state` keeps that array order.
+- Reordering units: drag a unit by its grip handle (or use the Move button on its row: Move up, Move down, Move to another project, labelled "Project (Category)"). Drop it on another row to reorder within the project, or on a project in the sidebar to move it to the end of that project. A unit's place is its position among the `models` of its project in the array, so moving one changes `projectId` and the array order and nothing else.
 - Any change to the stored shape must bump `STORAGE_VERSION` in `lib/migrate.ts`. Loading drops unknown properties, so an older build that read newer data with the same version would lose the extra fields on its next save. A new version makes older builds refuse the data instead.
 - `lib/migrate.ts` reads the current envelope and the legacy unversioned shape
   (a bare `state` object), which is re-saved as v1. Unknown versions are

@@ -240,3 +240,88 @@ describe('reducer', () => {
     });
   });
 });
+
+describe('MOVE_MODEL', () => {
+  const unit = (id: string, projectId: string) => ({ id, projectId, name: id, count: 1, built: false, primed: false, painted: false, based: false });
+  // Units interleaved across projects, so the flat-array mapping matters. E is an empty project.
+  const state: AppState = {
+    categories: [{ id: 'c', name: 'C' }],
+    projects: ['A', 'B', 'E'].map(id => ({ id, categoryId: 'c', name: id })),
+    models: [unit('u1', 'A'), unit('u2', 'B'), unit('u3', 'A'), unit('u4', 'B'), unit('u5', 'A')],
+  };
+  const move = (s: AppState, id: string, toProjectId: string, toIndexInProject: number) =>
+    reducer(s, { type: 'MOVE_MODEL', payload: { id, toProjectId, toIndexInProject } });
+  const units = (s: AppState) => s.models.map(m => `${m.id}@${m.projectId}`);
+
+  it('reorders a unit within its project, leaving other projects in place', () => {
+    // A's units are u1, u3, u5 at flat positions 0, 2, 4
+    expect(units(move(state, 'u1', 'A', 2))).toEqual(['u2@B', 'u3@A', 'u4@B', 'u5@A', 'u1@A']);
+    expect(units(move(state, 'u5', 'A', 0))).toEqual(['u5@A', 'u1@A', 'u2@B', 'u3@A', 'u4@B']);
+    expect(units(move(state, 'u1', 'A', 1))).toEqual(['u2@B', 'u3@A', 'u4@B', 'u1@A', 'u5@A']);
+  });
+
+  it('moves a unit to another project, before the unit at that position, and updates its projectId', () => {
+    expect(units(move(state, 'u3', 'B', 0))).toEqual(['u1@A', 'u3@B', 'u2@B', 'u4@B', 'u5@A']);
+    expect(units(move(state, 'u3', 'B', 1))).toEqual(['u1@A', 'u2@B', 'u3@B', 'u4@B', 'u5@A']);
+  });
+
+  it('moves a unit after the last unit of the target when the index equals its length', () => {
+    expect(units(move(state, 'u3', 'B', 2))).toEqual(['u1@A', 'u2@B', 'u4@B', 'u3@B', 'u5@A']);
+  });
+
+  it('appends to the end of the array when the target project is empty', () => {
+    expect(units(move(state, 'u3', 'E', 0))).toEqual(['u1@A', 'u2@B', 'u4@B', 'u5@A', 'u3@E']);
+  });
+
+  it('changes only the moved unit', () => {
+    const next = move(state, 'u3', 'B', 0);
+    expect(next.models.find(m => m.id === 'u3')).toEqual({ ...unit('u3', 'B') });
+    expect(next.models.find(m => m.id === 'u1')).toBe(state.models[0]);
+    expect(next.categories).toBe(state.categories);
+    expect(next.projects).toBe(state.projects);
+  });
+
+  it('returns the identical state for an unknown unit or unknown target project', () => {
+    expect(move(state, 'nope', 'A', 0)).toBe(state);
+    expect(move(state, 'u1', 'nope', 0)).toBe(state);
+  });
+
+  it('returns the identical state for a move to the same place', () => {
+    expect(move(state, 'u3', 'A', 1)).toBe(state);
+    expect(move(state, 'u4', 'B', 99)).toBe(state);
+    expect(move(state, 'u1', 'A', 0)).toBe(state);
+    expect(move(state, 'u5', 'A', NaN)).toBe(state);
+  });
+
+  it('clamps NaN, negative, fractional and over-length indexes into range', () => {
+    const toEnd = ['u2@B', 'u3@A', 'u4@B', 'u5@A', 'u1@A'];
+    expect(units(move(state, 'u1', 'A', NaN))).toEqual(toEnd);
+    expect(units(move(state, 'u1', 'A', 1.5))).toEqual(toEnd);
+    expect(units(move(state, 'u1', 'A', 99))).toEqual(toEnd);
+    expect(units(move(state, 'u5', 'A', -3))).toEqual(['u5@A', 'u1@A', 'u2@B', 'u3@A', 'u4@B']);
+  });
+
+  it("moves units whose ids contain a colon or are '__proto__', and into such a project", () => {
+    const odd: AppState = {
+      categories: [{ id: 'c', name: 'C' }],
+      projects: [{ id: '__proto__', categoryId: 'c', name: 'P' }, { id: 'a:b', categoryId: 'c', name: 'Q' }],
+      models: [unit('__proto__', '__proto__'), unit('a:b', '__proto__')],
+    };
+    expect(units(move(odd, '__proto__', '__proto__', 1))).toEqual(['a:b@__proto__', '__proto__@__proto__']);
+    expect(units(move(odd, 'a:b', 'a:b', 0))).toEqual(['__proto__@__proto__', 'a:b@a:b']);
+    expect(units(move(odd, '__proto__', 'a:b', 0))).toEqual(['a:b@__proto__', '__proto__@a:b']);
+    expect(Object.keys({}).length).toBe(0); // the prototype was not touched
+  });
+
+  it('keeps the state valid for every valid move', () => {
+    for (const m of state.models) {
+      for (const project of state.projects) {
+        for (let i = 0; i <= 4; i++) {
+          const next = move(state, m.id, project.id, i);
+          expect(isAppState(next)).toBe(true);
+          expect(next.models).toHaveLength(state.models.length);
+        }
+      }
+    }
+  });
+});

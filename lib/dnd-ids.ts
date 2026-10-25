@@ -1,11 +1,13 @@
 /**
  * Namespaced ids for drag and drop. dnd-kit needs ids that are unique across
- * every draggable and droppable in one context, but categories and projects
- * only guarantee uniqueness within their own type, so each id carries a prefix.
+ * every draggable and droppable in one context, but categories, projects and
+ * units only guarantee uniqueness within their own type, so each id carries a
+ * prefix. 'unit' is a unit row; 'ulist' is a project's unit table (its id is
+ * the project id), the drop target of a project with no unit rows to aim at.
  */
-export type DndKind = 'cat' | 'proj' | 'list' | 'hdr';
+export type DndKind = 'cat' | 'proj' | 'list' | 'hdr' | 'unit' | 'ulist';
 
-const KINDS: readonly string[] = ['cat', 'proj', 'list', 'hdr'];
+const KINDS: readonly string[] = ['cat', 'proj', 'list', 'hdr', 'unit', 'ulist'];
 
 export const dndId = (kind: DndKind, id: string): string => `${kind}:${id}`;
 

@@ -3,11 +3,25 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act } from '@testing-library/react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { axe } from '@/lib/test-axe';
-import { COUNT_COMMIT_MS, ModelTable } from './ModelTable';
+import type { ComponentProps } from 'react';
+import { COUNT_COMMIT_MS, ModelTable as BareModelTable } from './ModelTable';
+import { PaintDndProvider } from './PaintDndProvider';
 import { MAX_MODEL_COUNT } from '@/lib/validate';
 import type { Model } from '@/types';
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+// The table lives inside the app's one drag and drop context. These tests are about
+// the table, so by default it gets a provider with nothing to move to.
+type TableProps = Omit<ComponentProps<typeof BareModelTable>, 'moveTargets' | 'onMoveModel'> &
+  Partial<Pick<ComponentProps<typeof BareModelTable>, 'moveTargets' | 'onMoveModel'>>;
+function ModelTable({ moveTargets = [], onMoveModel = () => {}, ...props }: TableProps) {
+  return (
+    <PaintDndProvider categories={[]} projects={[]} models={props.models} onMoveProject={() => {}} onMoveCategory={() => {}} onMoveModel={onMoveModel}>
+      <BareModelTable {...props} moveTargets={moveTargets} onMoveModel={onMoveModel} />
+    </PaintDndProvider>
+  );
+}
 
 const model = (over: Partial<Model> = {}): Model => ({
   id: 'm1', projectId: 'p1', name: 'Captain', count: 3,
@@ -187,5 +201,120 @@ describe('ModelTable count input', () => {
     expect(input().value).toBe('1');
     fireEvent.blur(input());
     expect(onUpdateModel).not.toHaveBeenCalled();
+  });
+});
+
+describe('ModelTable Move menu', () => {
+  const targets = [
+    { id: 'p1', name: 'Marines', label: 'Marines (WH40k)', count: 3 },
+    { id: 'p2', name: 'Party', label: 'Party (D&D)', count: 2 },
+    // The same project name twice, in different categories
+    { id: 'p3', name: 'Party', label: 'Party (Pathfinder)', count: 0 },
+  ];
+  const units = [model({ id: 'a', name: 'Alpha' }), model({ id: 'b', name: 'Bravo' }), model({ id: 'c', name: 'Charlie' })];
+  const open = (name: string) => {
+    fireEvent.click(screen.getByRole('button', { name }));
+    return screen.getByRole('menu');
+  };
+  const item = (name: string) => screen.getByRole('menuitem', { name });
+  const render3 = () => {
+    const onMoveModel = vi.fn();
+    render(
+      <ModelTable
+        projectId="p1"
+        models={units}
+        onAddModel={vi.fn()}
+        onUpdateModel={vi.fn()}
+        onDeleteModel={vi.fn()}
+        onToggleStatus={vi.fn()}
+        moveTargets={targets}
+        onMoveModel={onMoveModel}
+      />,
+    );
+    return onMoveModel;
+  };
+
+  it('gives every unit an always-visible Move button of at least 24 by 24 px', () => {
+    render3();
+    for (const name of ['Alpha', 'Bravo', 'Charlie']) {
+      const button = screen.getByRole('button', { name: `Move unit ${name}` });
+      expect(button.className).not.toMatch(/opacity-0/);
+      expect(button.className).toMatch(/\bmin-h-6\b/);
+      expect(button.className).toMatch(/\bmin-w-6\b/);
+    }
+  });
+
+  it('disables Move up for the first unit and Move down for the last', () => {
+    render3();
+    open('Move unit Alpha');
+    expect(item('Move up').getAttribute('aria-disabled')).toBe('true');
+    expect(item('Move down').getAttribute('aria-disabled')).toBeNull();
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    open('Move unit Charlie');
+    expect(item('Move up').getAttribute('aria-disabled')).toBeNull();
+    expect(item('Move down').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('moves a unit up and down by position among the units of its project', () => {
+    const onMoveModel = render3();
+    open('Move unit Bravo');
+    fireEvent.click(item('Move down'));
+    expect(onMoveModel).toHaveBeenLastCalledWith('b', 'p1', 2);
+    open('Move unit Bravo');
+    fireEvent.click(item('Move up'));
+    expect(onMoveModel).toHaveBeenLastCalledWith('b', 'p1', 0);
+  });
+
+  it('does not call the handler for a disabled option', () => {
+    const onMoveModel = render3();
+    open('Move unit Alpha');
+    fireEvent.click(item('Move up'));
+    expect(onMoveModel).not.toHaveBeenCalled();
+  });
+
+  it('offers Move to for every other project, labelled with its category, and appends to it', () => {
+    const onMoveModel = render3();
+    open('Move unit Alpha');
+    expect(screen.getAllByRole('menuitem').map(i => i.textContent)).toEqual([
+      'Move up', 'Move down', 'Move to Party (D&D)', 'Move to Party (Pathfinder)',
+    ]);
+    fireEvent.click(item('Move to Party (D&D)'));
+    expect(onMoveModel).toHaveBeenLastCalledWith('a', 'p2', 2);
+    open('Move unit Alpha');
+    fireEvent.click(item('Move to Party (Pathfinder)'));
+    expect(onMoveModel).toHaveBeenLastCalledWith('a', 'p3', 0);
+  });
+
+  it('announces a move by unit and project name, never by id', () => {
+    render3();
+    // dnd-kit's own live region is a status too; this is the table's
+    const status = screen.getAllByRole('status').find(el => !el.id.startsWith('DndLiveRegion'))!;
+    expect(status.className).toMatch(/\bsr-only\b/);
+    open('Move unit Alpha');
+    fireEvent.click(item('Move to Party (D&D)'));
+    expect(status.textContent).toBe('Moved unit "Alpha" to project "Party", position 3 of 3.');
+    open('Move unit Charlie');
+    fireEvent.click(item('Move up'));
+    expect(status.textContent).toBe('Moved unit "Charlie" to project "Marines", position 2 of 3.');
+  });
+
+  it('positions the menu against the viewport, so the table’s scroll box cannot clip it', () => {
+    render3();
+    const menu = open('Move unit Alpha');
+    expect(menu.style.position).toBe('fixed');
+    expect(menu.className).not.toMatch(/\babsolute\b/);
+  });
+
+  it('closes the menu when the page scrolls', () => {
+    render3();
+    open('Move unit Alpha');
+    fireEvent.scroll(window);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('leaves the menu open when the menu itself scrolls', () => {
+    render3();
+    fireEvent.scroll(open('Move unit Alpha'));
+    expect(screen.getByRole('menu')).toBeTruthy();
   });
 });

@@ -25,6 +25,7 @@ export type Action =
   // Positions are counted after the moved item has been removed from its list
   | { type: 'MOVE_CATEGORY'; payload: { id: string; toIndex: number } }
   | { type: 'MOVE_PROJECT'; payload: { id: string; toCategoryId: string; toIndexInCategory: number } }
+  | { type: 'MOVE_MODEL'; payload: { id: string; toProjectId: string; toIndexInProject: number } }
   | { type: 'RESTORE_ITEMS'; payload: RemovedItems }; // undo of a delete
 
 export const initialState: AppState = {
@@ -141,6 +142,23 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, models: state.models.map(m => m.id === action.payload.id ? action.payload : m) };
     case 'DELETE_MODEL':
       return { ...state, models: state.models.filter(m => m.id !== action.payload) };
+    case 'MOVE_MODEL': {
+      const { id, toProjectId, toIndexInProject } = action.payload;
+      const model = state.models.find(m => m.id === id);
+      if (!model || !state.projects.some(p => p.id === toProjectId)) return state;
+      const rest = state.models.filter(m => m.id !== id);
+      // Flat positions of the target project's units, in order
+      const slots = rest.flatMap((m, i) => (m.projectId === toProjectId ? [i] : []));
+      const at = clampIndex(toIndexInProject, slots.length);
+      // Same project and same place among its units: nothing to do
+      if (model.projectId === toProjectId) {
+        const current = state.models.filter(m => m.projectId === toProjectId).findIndex(m => m.id === id);
+        if (current === at) return state;
+      }
+      const moved = model.projectId === toProjectId ? model : { ...model, projectId: toProjectId };
+      const flat = at < slots.length ? slots[at] : slots.length > 0 ? slots[slots.length - 1] + 1 : rest.length;
+      return { ...state, models: [...rest.slice(0, flat), moved, ...rest.slice(flat)] };
+    }
     case 'TOGGLE_MODEL_STATUS':
       return {
         ...state,

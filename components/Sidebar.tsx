@@ -1,39 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  MeasuringStrategy,
-  PointerSensor,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type Announcements,
-  type CollisionDetection,
-  type DragMoveEvent,
-  type DragStartEvent,
-  type KeyboardCoordinateGetter,
-} from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useDroppable } from '@dnd-kit/core';
+import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { Category, Model, Project } from '@/types';
 import { getProjectProgress } from '@/lib/progress';
-import { dndId, parseDndId, type DndKind } from '@/lib/dnd-ids';
-import {
-  createAnnouncer,
-  detectCollisions,
-  KEYBOARD_CODES,
-  keyboardScrollBehavior,
-  pointerDrop,
-  resolveDrop,
-  screenReaderInstructions,
-  stepKeyboardDrop,
-  type Drop,
-} from '@/lib/sidebar-dnd';
-import { useHoverOpen } from '@/hooks/useHoverOpen';
+import { dndId } from '@/lib/dnd-ids';
+import { useDragDrop } from './PaintDndProvider';
 import { DragHandle } from './DragHandle';
 import { InlineEditText } from './InlineEditText';
 import { MoveMenu, type MoveOption } from './MoveMenu';
-import { GripIcon, TrashIcon } from './icons';
+import { TrashIcon } from './icons';
 
 interface SidebarProps {
   categories: Category[];
@@ -68,14 +43,6 @@ type FocusTarget =
  * an inherited function, which is truthy.
  */
 const isClosed = (collapsed: Record<string, boolean>, id: string) => Object.hasOwn(collapsed, id) && collapsed[id];
-
-/** The item being dragged, by kind and real (not namespaced) id. */
-type DragItem = { kind: DndKind; id: string };
-
-// A press on a grip that moves less than this is a click, not a drag
-const POINTER_OPTIONS = { activationConstraint: { distance: 4 } };
-// Measure droppables whenever they change, so lists that open mid-drag are measured
-const MEASURING = { droppable: { strategy: MeasuringStrategy.Always } };
 
 /** useSortable as a render prop, so rows can stay inline in the Sidebar's markup. */
 function SortableItem({ id, data, children }: {
@@ -246,177 +213,34 @@ export function Sidebar({
     { id: 'down', label: 'Move down', disabled: index === categories.length - 1, onSelect: () => moveCategory(category, index + 1) },
   ];
 
-  // Drag and drop. dnd-kit reports what is under the dragged item; the drop
-  // position (`drop`) is ours, and the move is dispatched once, on drop, through
-  // the same handlers as the Move menu. The refs mirror state for dnd-kit's
-  // callbacks, which are created once and must read the latest values.
-  const [dragItem, setDragItem] = useState<DragItem | null>(null);
-  const [drop, setDropState] = useState<Drop | null>(null);
-  const dragItemRef = useRef<DragItem | null>(null);
-  const dropRef = useRef<Drop | null>(null);
-  const isKeyboardDrag = useRef(false);
-  const isCancelled = useRef(false);
-  const latest = useRef({ categories, projects, collapsed });
-  // A layout effect, so the keyboard stepper never reads collapse state a frame
-  // late (for example straight after a hover-open)
-  useLayoutEffect(() => { latest.current = { categories, projects, collapsed }; });
-
-  const setDrop = (next: Drop | null) => {
-    dropRef.current = next;
-    setDropState(next);
-  };
-
-  const isOpenNow = (openedId?: string) => (id: string) => id === openedId || !isClosed(latest.current.collapsed, id);
-
-  // Arrow keys step through the drop positions in order (lib/sidebar-dnd.ts), which
-  // reaches empty and closed categories that dnd-kit's geometric stepping skips.
-  // The returned coordinates only move the overlay next to the chosen position;
-  // collision detection reads the chosen drop directly for keyboard drags.
-  const coordinateGetter = useCallback<KeyboardCoordinateGetter>((event, { context, currentCoordinates }) => {
-    const direction = event.code === 'ArrowDown' ? 1 : event.code === 'ArrowUp' ? -1 : 0;
-    if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') event.preventDefault();
-    const item = dragItemRef.current;
-    if (direction === 0 || !item) return undefined;
-    event.preventDefault();
-    const { categories: cats, projects: projs } = latest.current;
-    const next = stepKeyboardDrop(cats, projs, item, isOpenNow(), dropRef.current, direction);
-    if (!next) return undefined;
-    dropRef.current = next;
-    setDropState(next);
-    const rect = context.droppableRects.get(dndId(next.over.kind, next.over.id));
-    if (!rect) return { x: currentCoordinates.x, y: currentCoordinates.y + direction };
-    const lineY = next.over.kind === 'list' || next.over.kind === 'hdr' ? rect.top + rect.height / 2 : next.after ? rect.bottom : rect.top;
-    return { x: currentCoordinates.x, y: lineY - (context.collisionRect?.height ?? 0) / 2 };
-  }, []);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, POINTER_OPTIONS),
-    useSensor(KeyboardSensor, useMemo(() => ({
-      coordinateGetter,
-      keyboardCodes: KEYBOARD_CODES,
-      // A getter, read by the sensor on each key, so a change to the motion setting applies at once
-      get scrollBehavior() { return keyboardScrollBehavior(); },
-    }), [coordinateGetter])),
-  );
-  const collisionDetection = useCallback<CollisionDetection>(args => detectCollisions(args, dropRef.current), []);
-  // The announcer keeps one piece of state (the last position spoken) across a drag
-  const [announcer] = useState(createAnnouncer);
-  const accessibility = useMemo(() => {
-    const now = () => ({ ...latest.current, drop: dropRef.current, cancelled: isCancelled.current });
-    const announcements: Announcements = {
-      onDragStart: args => announcer.onDragStart(now(), args),
-      onDragOver: args => announcer.onDragOver(now(), args),
-      onDragMove: args => announcer.onDragMove(now(), args),
-      onDragEnd: args => announcer.onDragEnd(now(), args),
-      onDragCancel: args => announcer.onDragCancel(now(), args),
-    };
-    return {
-    announcements,
-    screenReaderInstructions,
-    // Outside the sidebar, so its status region is not confused with the Move menu's.
-    // The sidebar only renders in the browser (PaintLogApp waits for localStorage).
-    container: typeof document === 'undefined' ? undefined : document.body,
-    };
-  }, [announcer]);
-
-  const finishDrag = () => {
-    dragItemRef.current = null;
-    setDragItem(null);
-    // dropRef is kept: dnd-kit's drop announcement reads it after this runs
-    setDropState(null);
-    isKeyboardDrag.current = false;
-    // isCancelled is kept for the drop announcement too; the next drag start clears it
-  };
-
-  const handleDragStart = ({ active, activatorEvent }: DragStartEvent) => {
-    const item = parseDndId(active.id);
-    if (!item || (item.kind !== 'proj' && item.kind !== 'cat')) return;
-    dragItemRef.current = item;
-    setDragItem(item);
-    isCancelled.current = false;
-    isKeyboardDrag.current = activatorEvent instanceof KeyboardEvent;
-    // A keyboard drag starts at the item's own place; a pointer drag at whatever is under it
-    setDrop(isKeyboardDrag.current ? stepKeyboardDrop(categories, projects, item, isOpenNow(), null, 0) : null);
-  };
-
-  // Pointer drags: the drop is the droppable under the pointer, and the pointer's
-  // half of it decides before or after. Keyboard drags set the drop themselves.
-  const handleDragMove = ({ over, activatorEvent, active }: DragMoveEvent) => {
-    if (isKeyboardDrag.current || !dragItemRef.current) return;
-    const next = pointerDrop(over, activatorEvent, active.rect.current);
-    const current = dropRef.current;
-    if (!next) {
-      if (current) setDrop(null);
-      return;
-    }
-    if (!current || current.over.kind !== next.over.kind || current.over.id !== next.over.id || current.after !== next.after) {
-      setDrop(next);
-    }
-  };
-
-  const handleDragEnd = () => {
-    const item = dragItemRef.current;
-    const wasCancelled = isCancelled.current;
-    finishDrag();
-    if (!item || wasCancelled) return;
-    const move = resolveDrop(categories, projects, item, dropRef.current);
-    if (move?.kind === 'proj') {
-      // Open a closed target so the moved row is visible and focus can return to it
-      setCollapsed(prev => (isClosed(prev, move.toCategoryId) ? { ...prev, [move.toCategoryId]: false } : prev));
-      onMoveProject(item.id, move.toCategoryId, move.toIndexInCategory);
-    } else if (move?.kind === 'cat') {
-      onMoveCategory(item.id, move.toIndex);
-    }
-  };
-
-  // Another tab can replace the data mid-drag (REPLACE_STATE). If the dragged item
-  // or its target has gone, cancel. dnd-kit has no cancel call, but both of its
-  // sensors cancel on an Escape keydown on the document; isCancelled guards the
-  // drop in case that keydown never reaches a sensor.
-  useEffect(() => {
-    if (!dragItem) return;
-    const exists = (o: DragItem) =>
-      o.kind === 'proj' ? projects.some(p => p.id === o.id) : categories.some(c => c.id === o.id);
-    const target = dropRef.current?.over;
-    if (exists(dragItem) && (!target || exists(target))) return;
-    isCancelled.current = true;
-    document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
-  }, [dragItem, categories, projects]);
-
-  // A project resting on a closed category opens it. The category stays open
-  // after the drop or a cancel. A keyboard drag keeps its place: the end of that category.
-  useHoverOpen({
-    overId: dragItem?.kind === 'proj' && drop?.over.kind === 'hdr' ? drop.over.id : null,
-    isOpenable: id => isClosed(collapsed, id) && categories.some(c => c.id === id),
-    onOpen: id => {
-      setCollapsed(prev => ({ ...prev, [id]: false }));
-      const item = dragItemRef.current;
-      if (isKeyboardDrag.current && item) {
-        const { categories: cats, projects: projs } = latest.current;
-        setDrop(stepKeyboardDrop(cats, projs, item, isOpenNow(id), dropRef.current, 0));
-      }
-    },
-  });
+  // Drag and drop lives in PaintDndProvider, which wraps this sidebar and the unit
+  // table so a unit can be dropped on a project. The collapse state stays here, so
+  // the sidebar registers what the provider needs: whether a category is open (for
+  // the keyboard stepper and the hover-open) and a way to open one.
+  const { dragItem, drop, move, registerSidebar } = useDragDrop();
+  useLayoutEffect(() => registerSidebar({
+    isOpen: id => !isClosed(collapsed, id),
+    open: id => setCollapsed(prev => (isClosed(prev, id) ? { ...prev, [id]: false } : prev)),
+  }), [collapsed, registerSidebar]);
 
   // Where the indicator goes, from the same resolver the drop dispatches with
-  const move = dragItem ? resolveDrop(categories, projects, dragItem, drop) : null;
-  const indicator: { before?: string; after?: string; list?: string; header?: string } = {};
-  if (dragItem && move?.kind === 'proj') {
+  const indicator: { before?: string; after?: string; list?: string; header?: string; project?: string } = {};
+  if (dragItem?.kind === 'proj' && move?.kind === 'proj') {
     const rest = projects.filter(p => p.categoryId === move.toCategoryId && p.id !== dragItem.id);
     if (isClosed(collapsed, move.toCategoryId)) indicator.header = move.toCategoryId;
     else if (rest.length === 0) indicator.list = move.toCategoryId;
     else if (move.toIndexInCategory < rest.length) indicator.before = dndId('proj', rest[move.toIndexInCategory].id);
     else indicator.after = dndId('proj', rest[rest.length - 1].id);
-  } else if (dragItem && move?.kind === 'cat') {
+  } else if (dragItem?.kind === 'cat' && move?.kind === 'cat') {
     const rest = categories.filter(c => c.id !== dragItem.id);
     if (move.toIndex < rest.length) indicator.before = dndId('cat', rest[move.toIndex].id);
     else indicator.after = dndId('cat', rest[rest.length - 1].id);
+  } else if (dragItem?.kind === 'unit' && move?.kind === 'unit' && drop?.over.kind === 'proj') {
+    // A unit dropped on a project goes to its end, so the whole row is outlined, not a line
+    indicator.project = drop.over.id;
   }
   const isCategoryDrag = dragItem?.kind === 'cat';
   const isProjectDrag = dragItem?.kind === 'proj';
-  const dragName = dragItem?.kind === 'proj'
-    ? projects.find(p => p.id === dragItem.id)?.name
-    : categories.find(c => c.id === dragItem?.id)?.name;
 
   const cancelAdd = () => {
     focusTarget.current = { kind: 'addButton' };
@@ -439,17 +263,6 @@ export function Sidebar({
         </h2>
         
         <nav aria-label="Categories">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={collisionDetection}
-            measuring={MEASURING}
-            accessibility={accessibility}
-            onDragStart={handleDragStart}
-            onDragMove={handleDragMove}
-            onDragOver={handleDragMove}
-            onDragEnd={handleDragEnd}
-            onDragCancel={finishDrag}
-          >
           <SortableContext items={categories.map(c => dndId('cat', c.id))} strategy={verticalListSortingStrategy}>
           <ul className="space-y-2">
             {categories.map((cat, catIndex) => {
@@ -598,7 +411,12 @@ export function Sidebar({
                       return (
                         <SortableItem key={project.id} id={id} data={{ categoryId: cat.id }}>
                           {row => (
-                        <li ref={row.setNodeRef} className={`relative flex items-center gap-1 ${row.isDragging ? 'opacity-50' : ''}`}>
+                        <li
+                          ref={row.setNodeRef}
+                          className={`relative flex items-center gap-1 ${row.isDragging ? 'opacity-50' : ''} ${
+                            indicator.project === project.id ? 'rounded ring-2 ring-inset ring-blue-400' : ''
+                          }`}
+                        >
                           {indicator.before === id && <DropLine edge="top" />}
                           {indicator.after === id && <DropLine edge="bottom" />}
                           <DragHandle
@@ -645,20 +463,6 @@ export function Sidebar({
             })}
           </ul>
           </SortableContext>
-          {/* Follows the pointer above the scroll containers, which would clip the row itself */}
-          <DragOverlay dropAnimation={null}>
-            {dragItem ? (
-              <div
-                data-drag-overlay=""
-                aria-hidden="true"
-                className="flex items-center gap-1 rounded-lg bg-zinc-700 px-2 py-1 text-sm text-zinc-100 shadow-lg ring-1 ring-blue-400"
-              >
-                <GripIcon />
-                <span className="truncate">{dragName ?? ''}</span>
-              </div>
-            ) : null}
-          </DragOverlay>
-          </DndContext>
         </nav>
 
         {/* Spoken, not shown: the result of a move */}

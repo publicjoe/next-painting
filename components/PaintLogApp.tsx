@@ -17,6 +17,8 @@ import { downloadFile } from '@/lib/download';
 import { newId } from '@/lib/id';
 import { removedBy, type RemovedItems } from '@/lib/state';
 import { Sidebar } from '@/components/Sidebar';
+import { PaintDndProvider } from '@/components/PaintDndProvider';
+import type { MoveTarget } from '@/components/ModelTable';
 import { EmptyBoxIcon } from '@/components/icons';
 import { ProjectList } from '@/components/ProjectList';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -74,6 +76,21 @@ export default function PaintLogApp() {
     return grouped;
   }, [state.models]);
 
+  // Every project as a Move menu destination for a unit, in sidebar order. "Boyz (Orks)"
+  // tells apart projects that share a name.
+  const moveTargets = useMemo<MoveTarget[]>(() => {
+    return state.categories.flatMap(c =>
+      state.projects
+        .filter(p => p.categoryId === c.id)
+        .map(p => ({
+          id: p.id,
+          name: p.name,
+          label: `${p.name} (${c.name})`,
+          count: modelsByProject.get(p.id)?.length ?? 0,
+        })),
+    );
+  }, [state.categories, state.projects, modelsByProject]);
+
   const handleSelectProject = (categoryId: string, projectId: string) => {
     setSelectedCategoryId(categoryId);
     setSelectedProjectId(projectId);
@@ -102,6 +119,13 @@ export default function PaintLogApp() {
     setSelectedCategoryId(selectedCategory?.id ?? null);
     setSelectedProjectId(selectedProject?.id ?? null);
     dispatch({ type: 'MOVE_CATEGORY', payload: { id, toIndex } });
+  };
+
+  // Moving a unit changes neither the project order nor the category order, so the
+  // implicit first project (or category) that is shown stays put and nothing needs
+  // pinning, unlike handleMoveProject. The unit leaves the table; the project stays.
+  const handleMoveModel = (id: string, toProjectId: string, toIndexInProject: number) => {
+    dispatch({ type: 'MOVE_MODEL', payload: { id, toProjectId, toIndexInProject } });
   };
 
   const handleAddCategory = (name: string) => {
@@ -244,6 +268,14 @@ export default function PaintLogApp() {
       onClickCapture={(e) => { keyboardClickRef.current = e.detail === 0; }}
       className="flex flex-col md:flex-row h-dvh bg-zinc-900 text-zinc-100 overflow-hidden font-sans selection:bg-blue-500/30"
     >
+      <PaintDndProvider
+        categories={state.categories}
+        projects={state.projects}
+        models={state.models}
+        onMoveProject={handleMoveProject}
+        onMoveCategory={handleMoveCategory}
+        onMoveModel={handleMoveModel}
+      >
       <Sidebar 
         categories={state.categories}
         selectedCategoryId={selectedCategory?.id ?? null}
@@ -314,6 +346,8 @@ export default function PaintLogApp() {
             onUpdateModel={(m) => dispatch({ type: 'UPDATE_MODEL', payload: m })}
             onDeleteModel={handleDeleteModel}
             onToggleStatus={(id: string, field: StatusField) => dispatch({ type: 'TOGGLE_MODEL_STATUS', payload: { id, field } })}
+            moveTargets={moveTargets}
+            onMoveModel={handleMoveModel}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center p-8 bg-zinc-900">
@@ -348,6 +382,7 @@ export default function PaintLogApp() {
           </div>
         )}
       </main>
+      </PaintDndProvider>
 
       <UndoToasts toasts={undos} onUndo={handleUndo} onDismiss={dismissToast} onClose={closeToast} />
       {confirmingFresh && (
