@@ -618,9 +618,45 @@ describe('PaintLogApp', () => {
     it('refuses a rename to a name another category already has, with a message', async () => {
       await renderApp();
       rename('D&D', 'wh40k '); // case and spaces are ignored
-      expect(within(nav()).getByRole('button', { name: 'D&D' })).toBeTruthy();
       expect(within(nav()).getAllByRole('button', { name: 'WH40k' })).toHaveLength(1);
       expect(screen.getByRole('alert').textContent).toContain('already exists');
+      // The edit stays open with the typed text, so it can be corrected
+      const input = screen.getByLabelText('Category name: D&D') as HTMLInputElement;
+      expect(input.value).toBe('wh40k'); // trimmed
+      fireEvent.change(input, { target: { value: 'Dungeons' } });
+      fireEvent.blur(input);
+      expect(within(nav()).getByRole('button', { name: 'Dungeons' })).toBeTruthy();
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('puts focus back in the field after a refused rename, so keyboard users are not stranded', async () => {
+      await renderApp();
+      rename('D&D', 'WH40k');
+      const input = screen.getByLabelText('Category name: D&D');
+      await waitFor(() => expect(document.activeElement).toBe(input));
+    });
+
+    it('clears the alert when another rename starts or a category is deleted', async () => {
+      await renderApp();
+      rename('D&D', 'WH40k');
+      expect(screen.getByRole('alert')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Rename category WH40k' }));
+      expect(screen.queryByRole('alert')).toBeNull();
+      rename('WH40k', 'D&D');
+      expect(screen.getByRole('alert')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Delete category D&D' }));
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('clears the alert when a refused rename is cancelled with Escape', async () => {
+      await renderApp();
+      rename('D&D', 'WH40k');
+      expect(screen.getByRole('alert')).toBeTruthy();
+      const input = screen.getByLabelText('Category name: D&D');
+      act(() => input.focus());
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(within(nav()).getByRole('button', { name: 'D&D' })).toBeTruthy();
+      expect(screen.queryByRole('alert')).toBeNull();
     });
 
     it('refuses to add a category whose name already exists, and keeps the form open', async () => {

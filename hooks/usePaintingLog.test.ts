@@ -115,6 +115,17 @@ describe('usePaintingLog', () => {
     expect(store.get(BACKUP_KEY)).toBe('{bad');
   });
 
+  it('recovers when the very first (immediate) write fails', async () => {
+    setItem.mockImplementation(() => { throw new Error('QuotaExceededError'); });
+    const { result } = renderHook(() => usePaintingLog());
+    await waitFor(() => expect(result.current.saveError).toBe(true));
+    expect(store.has(STORAGE_KEY)).toBe(false);
+    setItem.mockImplementation((k: string, v: string) => { store.set(k, v); });
+    act(() => result.current.dispatch({ type: 'ADD_CATEGORY', payload: { id: 'a', name: 'A' } }));
+    await waitFor(() => expect(result.current.saveError).toBe(false));
+    expect(JSON.parse(store.get(STORAGE_KEY)!).state.categories).toHaveLength(1);
+  });
+
   it('flags saveError when setItem throws, and clears it on recovery', async () => {
     const { result } = renderHook(() => usePaintingLog());
     await waitFor(() => expect(result.current.isLoaded).toBe(true));
@@ -189,14 +200,16 @@ describe('usePaintingLog debounced persistence', () => {
       expect(stored().categories).toEqual([]);
     });
 
-    it('stops listening after unmount', () => {
-      const { result, unmount } = renderHook(() => usePaintingLog());
-      add(result, 'a');
-      unmount(); // flushes once itself
-      setItem.mockClear();
-      setVisibility('hidden');
-      document.dispatchEvent(new Event('visibilitychange'));
-      expect(setItem).not.toHaveBeenCalled();
+    // Unmount flushes and empties the pending state, so a leaked listener would
+    // find nothing to write. Assert the removal itself instead.
+    it('removes the exact listener it added when unmounted', () => {
+      const added = vi.spyOn(document, 'addEventListener');
+      const removed = vi.spyOn(document, 'removeEventListener');
+      const { unmount } = renderHook(() => usePaintingLog());
+      const handler = added.mock.calls.find(c => c[0] === 'visibilitychange')?.[1];
+      expect(handler).toBeTypeOf('function');
+      unmount();
+      expect(removed).toHaveBeenCalledWith('visibilitychange', handler);
     });
   });
 

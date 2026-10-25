@@ -1,7 +1,7 @@
 import type { AppState } from '@/types';
 
 /** Largest model count accepted by the UI and by validation of stored or imported data. */
-export const MAX_MODEL_COUNT = 9999;
+export const MAX_MODEL_COUNT = 199;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);

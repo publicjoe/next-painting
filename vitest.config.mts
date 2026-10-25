@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
@@ -7,5 +7,5 @@ export default defineConfig({
   },
   // Tests run in node by default; hook tests opt in to jsdom with a
   // `// @vitest-environment jsdom` docblock.
-  test: { environment: 'node', setupFiles: ['./vitest.setup.ts'], exclude: ['e2e/**', 'node_modules/**'] },
+  test: { environment: 'node', setupFiles: ['./vitest.setup.ts'], exclude: [...configDefaults.exclude, 'e2e/**'] },
 });
